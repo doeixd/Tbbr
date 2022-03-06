@@ -1,0 +1,51 @@
+{
+  "name": "Tbbr",
+  "description": "Make the most recently opened tab the first tab.",
+  "version": "1.0",
+  "manifest_version": 3,
+  "action": {},
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "pick.js"
+      ]
+    }
+  ],
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "scripting",
+    "commands",
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*/*",
+    "https://*/*",
+    "http://*/*"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://*/*",
+      "http://*/*"
+    ],
+    "ids": [
+      "*"
+    ]
+  },
+  "commands": {
+    "pick": {
+      "suggested_key": {
+        "default": "Alt+B",
+        "linux": "Alt+B"
+      },
+      "description": "Select a tab by letter",
+      "global": true
+    }
+  }
+}
