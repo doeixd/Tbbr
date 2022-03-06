@@ -12,13 +12,9 @@ chrome.commands.onCommand.addListener((command) => {
           func: function(listOfLetters) {
             const focus = document.createElement('input')
             focus.style.cssText += `position:fixed;opacity:0;top:50%;`
-
-
             document.querySelector('body').appendChild(focus)
             focus.focus()
-
             const tID = setTimeout(() => focus.removeEventListener('keydown', listenForKey), 5001)
-
             function listenForKey(e) {
               if (listOfLetters.includes(e.key)) {
                 focus.blur()
@@ -53,9 +49,7 @@ chrome.commands.onCommand.addListener((command) => {
     });
   });
 })
-
 chrome.tabs.onActivated.addListener(activeInfo => move(activeInfo));
-
 async function move(activeInfo) {
   let current = activeInfo.tabId;
   console.log(current);
@@ -74,7 +68,6 @@ async function move(activeInfo) {
     }
   }
 }
-
 chrome.runtime.onMessageExternal.addListener(({ key }) => {
   console.log(key, 'wiz');
   if (listOfLetters.indexOf(key) > -1) {
