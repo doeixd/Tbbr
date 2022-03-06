@@ -11,10 +11,9 @@ chrome.commands.onCommand.addListener((command) => {
           args: [listOfLetters],
           func: function(listOfLetters) {
             const focus = document.createElement('input')
-            focus.style = {
-              position: 'fixed',
-              opacity: '0',
-            }
+            focus.style.cssText += `position:fixed;opacity:0;top:50%;`
+
+
             document.querySelector('body').appendChild(focus)
             focus.focus()
 
