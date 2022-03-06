@@ -81,7 +81,7 @@ async function move(activeInfo) {
       if (current === next.id) {
         chrome.tabs.move(current, { index: 0 });
       }
-    }, 3000);
+    }, 5000);
     console.log('Success.');
   } catch (error) {
     if (error == 'Error: Tabs cannot be edited right now (user may be dragging a tab).') {
