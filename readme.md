@@ -1,5 +1,5 @@
 # Tbbr
-Tbbr is a Chrome extension I made for sane tab management. Best used in conjunction with (Vimium C)[https://github.com/gdh1995/vimium-c]
+Tbbr is a Chrome extension I made for sane tab management. Best used in conjunction with [Vimium C](https://github.com/gdh1995/vimium-c)
 
 I hacked this together and don't recommend you using this.
 
