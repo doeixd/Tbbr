@@ -36,13 +36,9 @@ chrome.commands.onCommand.addListener((command) => {
           func: function(title) {
             document.oldTitle = document.title;
             document.title = title;
-            const tID = setTimeout(function() {
+            setTimeout(function() {
               document.title = document.oldTitle;
             }, 3000);
-            function oldTitle() {
-              document.title = document.oldTitle;
-              clearTimeout(tID)
-            }
           },
           args: [title],
           target: {
