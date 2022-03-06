@@ -15,7 +15,7 @@ Then go to [chrome://extensions](chrome://extensions), and turn on developer mod
 
 After that, click *Load unpacked* and navigate/select `~/local/share/Tbbr`
 
-Finally, navigate to [chrome://extensions/shortcuts](chrome://extensions/shortcuts) and create a keyboard shortcuts for the tab selection mode
+Finally, navigate to [chrome://extensions/shortcuts](chrome://extensions/shortcuts) and create a keyboard shortcut for the tab selection mode
 
 
 ## Usage
