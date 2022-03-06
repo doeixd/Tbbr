@@ -1,20 +1,6 @@
-
-// chrome.action.onClicked.addListener((tab) => {
-//   chrome.scripting.executeScript({
-//     target: { tabId: tab.id },
-//     func: contentScriptFunc,
-//     args: ['action'],
-//   });
-// });
-
-// function contentScriptFunc(name) {
-//   console.log(`"${name}" executed`);
-// }
-
 const listOfLetters = ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', 'u', 'i', 'o', 'p', 'n', 'm', ',', '.', 'q', 'w', 'e', 'r', 't', 'y', 'b', 'v', 'c', 'x', 'z']
 
 chrome.commands.onCommand.addListener((command) => {
-  console.log(`Command: ${command}`);
   if (!(command == 'pick')) return
   chrome.tabs.query({ currentWindow: true }, (tabList) => {
     if (!tabList.length) return;
@@ -25,29 +11,30 @@ chrome.commands.onCommand.addListener((command) => {
           args: [listOfLetters],
           func: function(listOfLetters) {
             const focus = document.createElement('input')
-            focus.style.setProperty('opacity', '0');
-            focus.style.setProperty('position', 'fixed');
-            focus.style.setProperty('top', '50%');
+            focus.style = {
+              position: 'fixed',
+              opacity: '0',
+            }
             document.querySelector('body').appendChild(focus)
             focus.focus()
-            document.addEventListener('keypress', (e) => {
-              console.log(e.key);
-              const listOfLetters = ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', 'u', 'i', 'o', 'p', 'n', 'm', ',', '.', 'q', 'w', 'e', 'r', 't', 'y', 'b', 'v', 'c', 'x', 'z']
+
+            const tID = setTimeout(() => focus.removeEventListener('keydown', listenForKey), 5001)
+
+            function listenForKey(e) {
               if (listOfLetters.includes(e.key)) {
-                console.log('ran')
                 focus.blur()
                 focus.remove()
-                // document.querySelector('body').removeChild(focus)
                 var exID = 'bmfpidchefcdkdakhopcmakmemocchhl'
                 chrome.runtime.sendMessage("bmfpidchefcdkdakhopcmakmemocchhl", { key: e.key })
                 window.postMessage({ key: e.key, type: "FROM_PAGE" }, "*")
+                clearTimeout(tID)
               }
-            }, { once: true })
+            }
+            document.addEventListener('keypress', listenForKey, { once: true })
           }
         });
       }
       const title = listOfLetters[tab.index] ?? tab.index;
-      console.log({ tab })
       chrome.scripting.executeScript(
         {
           func: function(title) {
@@ -69,7 +56,6 @@ chrome.commands.onCommand.addListener((command) => {
 })
 
 chrome.tabs.onActivated.addListener(activeInfo => move(activeInfo));
-
 
 async function move(activeInfo) {
   let current = activeInfo.tabId;
@@ -97,8 +83,6 @@ chrome.runtime.onMessageExternal.addListener(({ key }) => {
   }
 });
 chrome.runtime.onMessage.addListener(({ key }) => {
-  console.log(key, 'wizkalifa', listOfLetters.indexOf(key));
-
   if (listOfLetters.indexOf(key) > -1) {
     chrome.tabs.query({ index: listOfLetters.indexOf(key) }, (tabs) => {
       chrome.tabs.update(tabs[0].id, { active: true, highlighted: true });
