@@ -22,6 +22,7 @@ chrome.commands.onCommand.addListener((command) => {
                 var exID = 'bmfpidchefcdkdakhopcmakmemocchhl'
                 chrome.runtime.sendMessage("bmfpidchefcdkdakhopcmakmemocchhl", { key: e.key })
                 window.postMessage({ key: e.key, type: "FROM_PAGE" }, "*")
+                window.dispatchEvent(new Event('picked'))
                 clearTimeout(tID)
               }
             }
@@ -33,11 +34,15 @@ chrome.commands.onCommand.addListener((command) => {
       chrome.scripting.executeScript(
         {
           func: function(title) {
-            var old = document.title;
+            document.oldTitle = document.title;
             document.title = title;
-            setTimeout(function() {
-              document.title = old;
+            const tID = setTimeout(function() {
+              document.title = document.oldTitle;
             }, 3000);
+            function oldTitle() {
+              document.title = document.oldTitle;
+              clearTimeout(tID)
+            }
           },
           args: [title],
           target: {
@@ -61,20 +66,27 @@ async function move(activeInfo) {
         chrome.tabs.move(current, { index: 0 });
       }
     }, 5000);
-    console.log('Success.');
   } catch (error) {
     if (error == 'Error: Tabs cannot be edited right now (user may be dragging a tab).') {
       setTimeout(() => move(activeInfo), 50);
     }
   }
 }
-chrome.runtime.onMessageExternal.addListener(({ key }) => {
-  console.log(key, 'wiz');
-  if (listOfLetters.indexOf(key) > -1) {
-    chrome.tabs.update(listOfLetters.indexOf(key), { active: true });
+chrome.runtime.onMessage.addListener(({ key, type }) => {
+  if (type == 'picked') {
+    chrome.tabs.query({ currentWindow: true }, (tabList) => {
+      if (!tabList.length) return;
+      tabList.forEach((tab) => {
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          args: [listOfLetters],
+          func: function() {
+            document.title = document.oldTitle;
+          }
+        })
+      })
+    })
   }
-});
-chrome.runtime.onMessage.addListener(({ key }) => {
   if (listOfLetters.indexOf(key) > -1) {
     chrome.tabs.query({ index: listOfLetters.indexOf(key) }, (tabs) => {
       chrome.tabs.update(tabs[0].id, { active: true, highlighted: true });
