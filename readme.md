@@ -13,7 +13,7 @@ npx degit doeixd/Tbbr ~/.local/share
 
 Then go to [chrome://extensions](chrome://extensions), and turn on developer mode
 
-After that, click *Load unpacked* and navigate/select `~/local/share/Tbbr`
+After that, click *Load unpacked* and navigate/select `~/.local/share/Tbbr`
 
 Finally, navigate to [chrome://extensions/shortcuts](chrome://extensions/shortcuts) and create a keyboard shortcut for the tab selection mode
 
