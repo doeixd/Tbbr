@@ -84,7 +84,7 @@ chrome.runtime.onMessage.addListener(({ key, type }) => {
     })
   }
   if (listOfLetters.indexOf(key) > -1) {
-    chrome.tabs.query({ index: listOfLetters.indexOf(key) }, (tabs) => {
+    chrome.tabs.query({ index: listOfLetters.indexOf(key), currentWindow: true }, (tabs) => {
       chrome.tabs.update(tabs[0].id, { active: true, highlighted: true });
     })
   }
