@@ -19,8 +19,8 @@ chrome.commands.onCommand.addListener((command) => {
               if (listOfLetters.includes(e.key)) {
                 focus.blur()
                 focus.remove()
-                var exID = 'bmfpidchefcdkdakhopcmakmemocchhl'
-                chrome.runtime.sendMessage("bmfpidchefcdkdakhopcmakmemocchhl", { key: e.key })
+                var extensionID = chrome.runtime.id
+                chrome.runtime.sendMessage(extensionID, { key: e.key })
                 window.postMessage({ key: e.key, type: "FROM_PAGE" }, "*")
                 window.dispatchEvent(new Event('picked'))
                 clearTimeout(tID)
