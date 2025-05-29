@@ -13,7 +13,8 @@
         "<all_urls>"
       ],
       "js": [
-        "pick.js"
+        "pick.js",
+        "mouse_tracker.js"
       ]
     }
   ],
