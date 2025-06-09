@@ -1,7 +1,7 @@
 {
   "name": "Tbbr",
   "description": "Make the most recently opened tab the first tab.",
-  "version": "1.0",
+  "version": "1.1",
   "manifest_version": 3,
   "action": {},
   "background": {
@@ -13,7 +13,6 @@
         "<all_urls>"
       ],
       "js": [
-        "pick.js",
         "mouse_tracker.js"
       ]
     }

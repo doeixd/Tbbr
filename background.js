@@ -20,42 +20,76 @@ chrome.commands.onCommand.addListener((command) => {
           target: { tabId: tab.id },
           args: [listOfLetters],
           func: function(listOfLetters) {
-            const focus = document.createElement('input')
-            focus.style.cssText += `position:fixed;opacity:0;top:50%;`
-            document.querySelector('body').appendChild(focus)
-            focus.focus()
-            const tID = setTimeout(() => focus.removeEventListener('keydown', listenForKey), 5001)
-            function listenForKey(e) {
-              if (listOfLetters.includes(e.key)) {
-                focus.blur()
-                focus.remove()
-                var extensionID = chrome.runtime.id
-                chrome.runtime.sendMessage(extensionID, { key: e.key })
-                window.postMessage({ key: e.key, type: "FROM_PAGE" }, "*")
-                window.dispatchEvent(new Event('picked'))
-                clearTimeout(tID)
-              }
+            const focusElement = document.createElement('input');
+            focusElement.style.cssText += `position:fixed;opacity:0;top:50%;width:0;height:0;padding:0;border:0;`;
+            document.body.appendChild(focusElement);
+            focusElement.focus();
+            console.log('[ContentScript] Pick mode activated. Focus element created and focused.');
+
+            let timeoutId = null;
+
+            function cleanupListener(source) {
+                console.log(`[ContentScript] Cleanup called from ${source}. Removing listener and focus element.`);
+                focusElement.removeEventListener('keydown', handleKeyDown);
+                if (focusElement.parentNode) {
+                    focusElement.blur();
+                    focusElement.remove();
+                }
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
+                }
+                // Attempt to remove the message listener as well if it's specific to this instance
+                // This is tricky as chrome.runtime.onMessage is global in the content script context if not managed carefully.
+                // For now, we'll rely on the fact that a new pick command will overwrite the old listener context if this script is re-injected.
             }
-            // Changed from 'keypress' to 'keydown' to potentially catch more keys, and added { once: true } for safety
-            document.addEventListener('keydown', listenForKey, { once: true });
+
+            function handleKeyDown(e) {
+                console.log('[ContentScript] Keydown event: ', e.key);
+                if (e.key === 'Escape') {
+                    console.log('[ContentScript] Escape key pressed. Sending cancel_pick_mode message.');
+                    chrome.runtime.sendMessage({ type: 'cancel_pick_mode' });
+                    cleanupListener('Escape key');
+                    return;
+                }
+                if (listOfLetters.includes(e.key)) {
+                    console.log(`[ContentScript] Letter key '${e.key}' pressed. Sending message and cleaning up.`);
+                    chrome.runtime.sendMessage({ key: e.key }); // Will be handled by background.js onMessage for tab switching
+                    // No longer sending {type: "FROM_PAGE"} or dispatching 'picked' event directly from here.
+                    // The background script will manage title reversion upon receiving the key.
+                    cleanupListener('Letter key');
+                }
+            }
+
+            focusElement.addEventListener('keydown', handleKeyDown);
+
+            // Timeout to automatically cancel pick mode if no key is pressed.
+            timeoutId = setTimeout(() => {
+                console.log('[ContentScript] Pick mode timed out. Cleaning up and notifying background.');
+                chrome.runtime.sendMessage({ type: 'pick_mode_timeout' });
+                cleanupListener('Timeout');
+            }, 5000); // 5 seconds timeout
+
+            // The globalCancelListener has been removed as per cleanup requirements.
+            // The content script now primarily manages its lifecycle via direct user action (Escape, letter) or its own timeout.
           }
         });
       }
-      const title = listOfLetters[tab.index] ?? tab.index.toString(); // Ensure title is a string
+      const title = listOfLetters[tab.index] ?? tab.index.toString();
+      // console.log(`[onCommand] Preparing to set title for tab ${tab.id} (index ${tab.index}) to "${title}"`);
       chrome.scripting.executeScript(
         {
-          func: function(title) {
-            // Ensure document.oldTitle is captured only if not already set by this script
-            if (typeof document.oldTitle === 'undefined' || !document.title.startsWith(title + ':')) {
+          func: function(titleStr) {
+            // console.log(`[ContentScript Title] Setting title: ${titleStr}. Current title: ${document.title}`);
+            if (typeof document.oldTitle === 'undefined' || !document.title.startsWith(titleStr + ':')) {
                  document.oldTitle = document.title;
+                 // console.log(`[ContentScript Title] Stored old title: ${document.oldTitle}`);
             }
-            document.title = title + ': ' + document.oldTitle;
-            setTimeout(function() {
-              // Check if the title is still the one set by the script before reverting
-              if (document.title.startsWith(title + ':')) {
-                document.title = document.oldTitle;
-              }
-            }, 3000);
+            document.title = titleStr + ': ' + document.oldTitle;
+            // console.log(`[ContentScript Title] New title set: ${document.title}`);
+
+            // The 3-second timeout to revert the title is removed from here.
+            // Title reversion will now be handled by background.js upon tab selection, cancellation, or timeout.
           },
           args: [title],
           target: {
@@ -69,27 +103,36 @@ chrome.commands.onCommand.addListener((command) => {
 });
 
 chrome.tabs.onActivated.addListener(activeInfo => {
-    console.log(`Tab activated: ${activeInfo.tabId}. Current tabMoveTimeoutId: ${tabMoveTimeoutId}`);
-    // Clear any existing timer for a previous tab
+    console.log(`[onActivated] Tab activated: ${activeInfo.tabId}. Current timer ID: ${tabMoveTimeoutId}. Mouse is ${isMouseInsidePage ? 'inside' : 'outside'}.`);
+
+    // Clear any existing timer for a previous tab or the same tab if it was somehow re-activated
     if (tabMoveTimeoutId) {
         clearTimeout(tabMoveTimeoutId);
-        console.log(`Cleared existing timer ${tabMoveTimeoutId} for previous tab.`);
+        console.log(`[onActivated] Cleared existing timer ${tabMoveTimeoutId}.`);
         tabMoveTimeoutId = null;
     }
     
     // Initialize pendingMoveInfo for the newly activated tab
+    // The full duration for a new tab focus is 5000ms.
     pendingMoveInfo = {
         tabId: activeInfo.tabId,
-        initialDuration: 5000, // Reset to full duration
-        startTime: Date.now(), // Set current time as start
+        initialDuration: 5000,
+        startTime: 0, // Will be set by startMoveTimer or when resuming
         timePaused: 0 
     };
+    console.log(`[onActivated] Initialized pendingMoveInfo for tab ${activeInfo.tabId}: ${JSON.stringify(pendingMoveInfo)}`);
 
-    console.log(`Tab activated: ${activeInfo.tabId}. Mouse is ${isMouseInsidePage ? 'inside' : 'outside'}. Pending info set.`);
     if (isMouseInsidePage) {
+        console.log(`[onActivated] Mouse is inside. Starting timer for tab ${activeInfo.tabId}.`);
         startMoveTimer(activeInfo.tabId, pendingMoveInfo.initialDuration);
+    } else {
+        // If mouse is outside, timer will not start.
+        // pendingMoveInfo is set up. mouse_enter will use it if the mouse re-enters while this tab is active.
+        // We record the current time as 'timePaused' to indicate the "pause" started now,
+        // even though the timer hasn't officially run yet. This helps mouse_enter logic.
+        pendingMoveInfo.timePaused = Date.now();
+        console.log(`[onActivated] Mouse is outside. Timer for tab ${activeInfo.tabId} will not start. pendingMoveInfo updated: ${JSON.stringify(pendingMoveInfo)}`);
     }
-    // If mouse is outside, timer will be started by mouse_enter event
 });
 
 function startMoveTimer(tabId, duration) {
@@ -98,143 +141,214 @@ function startMoveTimer(tabId, duration) {
         console.log(`Cleared pre-existing timer ${tabMoveTimeoutId} before starting new one.`);
     }
     
-    pendingMoveInfo.startTime = Date.now(); // Record start time
-    pendingMoveInfo.tabId = tabId; // Ensure tabId is correctly set for this timer
-    // Ensure initialDuration in pendingMoveInfo is also set to this duration
-    pendingMoveInfo.initialDuration = duration;
+    console.log(`[startMoveTimer] Attempting to start timer for tab ${tabId} with duration ${duration}ms. Current timer ID: ${tabMoveTimeoutId}`);
+    // It's crucial that any existing timer is cleared before calling this function.
+    // However, as a safeguard, ensure it's cleared.
+    if (tabMoveTimeoutId) {
+        clearTimeout(tabMoveTimeoutId);
+        console.warn(`[startMoveTimer] Cleared pre-existing timer ${tabMoveTimeoutId}. This should ideally be handled by the caller.`);
+    }
 
+    pendingMoveInfo.tabId = tabId;
+    pendingMoveInfo.initialDuration = duration; // This is the remaining/full duration for this timer session
+    pendingMoveInfo.startTime = Date.now();   // Timestamp when this specific timer starts
+    pendingMoveInfo.timePaused = 0;           // Reset pause timestamp
+
+    console.log(`[startMoveTimer] pendingMoveInfo initialized/updated: `, JSON.stringify(pendingMoveInfo));
 
     tabMoveTimeoutId = setTimeout(async () => {
-        console.log(`Timer callback fired for tab ${tabId}. Mouse is ${isMouseInsidePage ? 'inside' : 'outside'}.`);
+        const localTimerId = tabMoveTimeoutId; // Capture for logging, in case it's cleared globally by another event
+        console.log(`[Timer Callback] Fired for tab ${pendingMoveInfo.tabId} (timer ID ${localTimerId}). Mouse is ${isMouseInsidePage ? 'inside' : 'outside'}.`);
+
+        // Critical check: If the mouse is outside, the timer should not execute its main action.
+        // mouse_leave should have cleared this timer and stored remaining time.
+        // If this callback still fires, it implies a potential race condition or logic gap.
         if (!isMouseInsidePage) {
-            // If mouse left while timer was running, it should have been paused by mouse_leave.
-            // This check is a safeguard.
-            console.log(`Timer for tab ${tabId} expired, but mouse is outside. Awaiting re-entry.`);
-            // Do not reset tabMoveTimeoutId here, mouse_leave should have handled it or will handle it.
+            console.warn(`[Timer Callback] Timer for tab ${pendingMoveInfo.tabId} (ID ${localTimerId}) fired, but mouse is outside. This indicates a potential issue. The timer should have been paused.`);
+            // Do not proceed with moving the tab. Reset relevant pendingMoveInfo.
+            // The mouse_leave handler is responsible for managing state when mouse is out.
+            // We clear tabMoveTimeoutId here because this specific timer instance has fired.
+            if (tabMoveTimeoutId === localTimerId) { // Ensure we are clearing the correct timer
+                 tabMoveTimeoutId = null;
+            }
             return; 
         }
 
+        // Ensure the timer is for the currently active tab and matches pendingMoveInfo
         const [currentActiveTab] = await chrome.tabs.query({ currentWindow: true, active: true });
-        if (currentActiveTab && currentActiveTab.id === tabId) {
-            console.log(`Timer expired for tab ${tabId}. Moving it to index 0.`);
+        if (currentActiveTab && currentActiveTab.id === pendingMoveInfo.tabId) {
+            console.log(`[Timer Callback] Conditions met for tab ${pendingMoveInfo.tabId}. Moving it to index 0.`);
             try {
-                await chrome.tabs.move(tabId, { index: 0 });
-                 console.log(`Tab ${tabId} moved successfully.`);
+                await chrome.tabs.move(pendingMoveInfo.tabId, { index: 0 });
+                console.log(`[Timer Callback] Tab ${pendingMoveInfo.tabId} moved successfully.`);
             } catch (error) {
-                console.error(`Error moving tab ${tabId}:`, error);
-                // Optional: Retry logic or specific error handling
+                console.error(`[Timer Callback] Error moving tab ${pendingMoveInfo.tabId}:`, error);
                 if (error.message.includes('Tabs cannot be edited right now')) {
-                    // Potentially retry after a short delay, but be careful of loops
-                    // For now, just log it.
+                    console.warn(`[Timer Callback] Tab move for ${pendingMoveInfo.tabId} failed due to browser state. Consider retry or alternative handling.`);
                 }
             }
         } else {
-            console.log(`Timer expired for tab ${tabId}, but it's no longer active or conditions not met. Active tab is ${currentActiveTab ? currentActiveTab.id : 'none'}.`);
+            console.log(`[Timer Callback] Conditions not met for tab ${pendingMoveInfo.tabId}. It might no longer be active or pending info mismatch. Active tab: ${currentActiveTab ? currentActiveTab.id : 'none'}.`);
         }
-        tabMoveTimeoutId = null; // Timer has finished its job or conditions not met
-        // Reset parts of pendingMoveInfo related to active timing, but keep tabId for context if needed
+
+        // This timer instance has completed its job or conditions were not met for action.
+        if (tabMoveTimeoutId === localTimerId) { // Ensure we are clearing the correct timer
+            tabMoveTimeoutId = null;
+        }
+        // Reset pendingMoveInfo as the timer action (or decision not to act) has concluded.
+        // A new timer will re-initialize it if needed (e.g., on tab activation).
         pendingMoveInfo.startTime = 0;
         pendingMoveInfo.timePaused = 0;
-        // pendingMoveInfo.initialDuration = 0; // Mark as completed or not needing to run further
+        // initialDuration could be set to 0 or kept as is, depending on desired state post-action.
+        // Setting to 0 indicates this specific timed duration is complete.
+        pendingMoveInfo.initialDuration = 0;
+        console.log(`[Timer Callback] Timer ${localTimerId} for tab ${pendingMoveInfo.tabId} finished. pendingMoveInfo: `, JSON.stringify(pendingMoveInfo));
 
     }, duration);
-    console.log(`Timer started for tab ${tabId} with duration ${duration}ms. ID: ${tabMoveTimeoutId}`);
+    console.log(`[startMoveTimer] Timer ${tabMoveTimeoutId} started for tab ${tabId} with duration ${duration}ms.`);
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    const { key, type } = message; // Destructure key and type from message
+    const { key, type } = message;
+    console.log(`[onMessage] Received message: type='${type}', key='${key}'. Current tabMoveTimeoutId: ${tabMoveTimeoutId}, pendingMoveInfo: ${JSON.stringify(pendingMoveInfo)}`);
 
     if (type === 'mouse_leave') {
-        console.log(`Mouse left page. Tab: ${pendingMoveInfo.tabId}. Current timer ID: ${tabMoveTimeoutId}`);
         isMouseInsidePage = false;
-        if (tabMoveTimeoutId && pendingMoveInfo.tabId) { // Check if a timer was running for a tab
+        console.log(`[mouse_leave] Mouse left page. Current tab: ${pendingMoveInfo.tabId}. Timer ID: ${tabMoveTimeoutId}`);
+        if (tabMoveTimeoutId && pendingMoveInfo.tabId && pendingMoveInfo.startTime > 0) {
             const elapsedTime = Date.now() - pendingMoveInfo.startTime;
-            const remaining = pendingMoveInfo.initialDuration - elapsedTime;
+            const remainingDuration = pendingMoveInfo.initialDuration - elapsedTime;
             
             clearTimeout(tabMoveTimeoutId);
-            console.log(`Cleared timer ${tabMoveTimeoutId} due to mouse_leave.`);
+            console.log(`[mouse_leave] Cleared timer ${tabMoveTimeoutId}.`);
             tabMoveTimeoutId = null;
             
-            if (remaining > 0) {
-                pendingMoveInfo.initialDuration = remaining; // Update duration to remaining
-                pendingMoveInfo.timePaused = Date.now(); // Record when it was paused
-                console.log(`Timer for tab ${pendingMoveInfo.tabId} paused. Remaining: ${remaining}ms`);
+            if (remainingDuration > 0) {
+                pendingMoveInfo.initialDuration = remainingDuration; // Store remaining time
+                pendingMoveInfo.timePaused = Date.now();     // Record when it was paused
+                console.log(`[mouse_leave] Timer for tab ${pendingMoveInfo.tabId} paused. Remaining: ${remainingDuration}ms. pendingMoveInfo updated: ${JSON.stringify(pendingMoveInfo)}`);
             } else {
-                console.log(`Timer for tab ${pendingMoveInfo.tabId} had ${remaining}ms left. Considered expired or negligible.`);
-                pendingMoveInfo.initialDuration = 0; // Mark as no time left
-                pendingMoveInfo.timePaused = Date.now(); // Still note when it was "paused" even if time is up
+                // Timer essentially expired or had negligible time left
+                console.log(`[mouse_leave] Timer for tab ${pendingMoveInfo.tabId} had ${remainingDuration}ms remaining. Considered expired.`);
+                pendingMoveInfo.initialDuration = 0; // No time left
+                pendingMoveInfo.timePaused = Date.now(); // Still note the pause time
+                 // No need to restart a timer that has no duration left.
             }
         } else {
-            console.log("Mouse left, but no active timer to pause or tabId not set in pendingMoveInfo.");
+            console.log(`[mouse_leave] No active timer to pause, or tabId/startTime not set in pendingMoveInfo. tabMoveTimeoutId: ${tabMoveTimeoutId}, pendingMoveInfo: ${JSON.stringify(pendingMoveInfo)}`);
         }
     } else if (type === 'mouse_enter') {
-        console.log(`Mouse entered page. Tab: ${pendingMoveInfo.tabId}. Remaining duration: ${pendingMoveInfo.initialDuration}ms.`);
         isMouseInsidePage = true;
-        // Check if there's a tab that was pending and has time remaining
-        if (pendingMoveInfo.tabId && pendingMoveInfo.initialDuration > 0) {
-            if (pendingMoveInfo.timePaused > 0) { // It was genuinely paused
-                console.log(`Resuming timer for tab ${pendingMoveInfo.tabId}. Was paused, remaining: ${pendingMoveInfo.initialDuration}ms.`);
-                startMoveTimer(pendingMoveInfo.tabId, pendingMoveInfo.initialDuration);
-                pendingMoveInfo.timePaused = 0; // Reset pause timestamp
-            } else if (!tabMoveTimeoutId) { 
-                // This covers:
-                // 1. Tab was activated while mouse was outside.
-                // 2. Mouse left, then quickly re-entered before timer could be set by onActivated (if onActivated is slow or mouse events are rapid).
-                console.log(`Mouse entered. Tab ${pendingMoveInfo.tabId} was pending (e.g. activated while out, or quick leave/enter). Starting timer with ${pendingMoveInfo.initialDuration}ms.`);
-                startMoveTimer(pendingMoveInfo.tabId, pendingMoveInfo.initialDuration);
-            } else {
-                 console.log(`Mouse entered, but a timer ${tabMoveTimeoutId} is already running or conditions not met for resume.`);
+        console.log(`[mouse_enter] Mouse entered page. Current tab: ${pendingMoveInfo.tabId}. Stored remaining duration: ${pendingMoveInfo.initialDuration}ms.`);
+
+        // If a timer was paused and has remaining time, resume it.
+        if (pendingMoveInfo.tabId && pendingMoveInfo.initialDuration > 0 && pendingMoveInfo.timePaused > 0) {
+            // Ensure no other timer is somehow already running
+            if (tabMoveTimeoutId) {
+                clearTimeout(tabMoveTimeoutId);
+                console.warn(`[mouse_enter] Cleared an unexpected existing timer ${tabMoveTimeoutId} before resuming.`);
+                tabMoveTimeoutId = null;
             }
+            console.log(`[mouse_enter] Resuming timer for tab ${pendingMoveInfo.tabId} with remaining duration ${pendingMoveInfo.initialDuration}ms.`);
+            startMoveTimer(pendingMoveInfo.tabId, pendingMoveInfo.initialDuration);
+            // pendingMoveInfo.timePaused = 0; // startMoveTimer resets this
+        } else if (pendingMoveInfo.tabId && pendingMoveInfo.initialDuration > 0 && !tabMoveTimeoutId) {
+            // This case handles:
+            // 1. Tab was activated while mouse was outside (onActivated sets up pendingMoveInfo but doesn't start timer).
+            // 2. A very quick mouse_leave then mouse_enter where the timer was cleared by mouse_leave,
+            //    and onActivated didn't re-trigger (or wasn't supposed to).
+            console.log(`[mouse_enter] Conditions suggest a timer should be started for tab ${pendingMoveInfo.tabId} (e.g., tab activated while outside, or quick leave/enter). Duration: ${pendingMoveInfo.initialDuration}ms.`);
+            startMoveTimer(pendingMoveInfo.tabId, pendingMoveInfo.initialDuration);
+        } else if (tabMoveTimeoutId) {
+            console.log(`[mouse_enter] Mouse entered, but a timer ${tabMoveTimeoutId} is already running. No action taken to prevent duplicate timers.`);
         } else {
-            console.log("Mouse entered, but no pending tab/timer to resume or no time remaining.");
+            console.log(`[mouse_enter] No pending tab with remaining duration to resume, or initialDuration is 0. pendingMoveInfo: ${JSON.stringify(pendingMoveInfo)}`);
         }
-    } else if (type == 'picked') {
-        console.log("Message 'picked' received");
-        // Clear any active move timer because the user is interacting with tabs
-        if (tabMoveTimeoutId) {
-            clearTimeout(tabMoveTimeoutId);
-            tabMoveTimeoutId = null;
-            console.log(`Cleared tab move timer ${tabMoveTimeoutId} due to 'picked' message.`);
-            // Reset pending info as interaction overrides auto-move
-            pendingMoveInfo = { tabId: null, initialDuration: 5000, startTime: 0, timePaused: 0 };
-        }
-        chrome.tabs.query({ currentWindow: true }, (tabList) => {
-            if (!tabList.length) return;
-            tabList.forEach((tab) => {
-                chrome.scripting.executeScript({
-                    target: { tabId: tab.id },
-                    func: function() {
-                        // Check if oldTitle exists before trying to revert
-                        if (typeof document.oldTitle !== 'undefined') {
-                           document.title = document.oldTitle;
-                           delete document.oldTitle; // Clean up
-                        }
-                    }
-                });
-            });
-        });
+    // Removed the 'picked' message type handler as it's no longer used by the content script.
+    // The functionality (clearing timer, resetting info, reverting titles) is now handled by
+    // the 'cancel_pick_mode' message or as part of the letter key selection flow.
     } else if (key && listOfLetters.includes(key)) { // Ensure key exists before using it
-        console.log(`Letter key pressed: ${key}`);
-        // Clear any active move timer because the user is selecting a tab
+        console.log(`[onMessage - key] Letter key pressed: ${key}. User is selecting a tab.`);
         if (tabMoveTimeoutId) {
             clearTimeout(tabMoveTimeoutId);
-            console.log(`Cleared tab move timer ${tabMoveTimeoutId} due to letter key press.`);
+            console.log(`[onMessage - key] Cleared active timer ${tabMoveTimeoutId} due to letter key press.`);
             tabMoveTimeoutId = null;
-            // Reset pending info as interaction overrides auto-move
-             pendingMoveInfo = { tabId: null, initialDuration: 5000, startTime: 0, timePaused: 0 };
         }
+        // Reset pendingMoveInfo as user interaction overrides auto-move.
+        pendingMoveInfo = { tabId: null, initialDuration: 5000, startTime: 0, timePaused: 0 };
+        console.log(`[onMessage - key] Reset pendingMoveInfo: ${JSON.stringify(pendingMoveInfo)}`);
+
         const tabIndex = listOfLetters.indexOf(key);
         if (tabIndex > -1) {
             chrome.tabs.query({ index: tabIndex, currentWindow: true }, (tabs) => {
                 if (tabs && tabs.length > 0) {
+                    console.log(`[onMessage - key] Activating tab ${tabs[0].id} at index ${tabIndex} for key ${key}.`);
                     chrome.tabs.update(tabs[0].id, { active: true, highlighted: true });
+                    // After successful activation, ensure all titles are reverted.
+                    revertAllTabTitlesAndCleanUp();
                 } else {
-                    console.log(`No tab found at index ${tabIndex} for key ${key}.`);
+                    console.log(`[onMessage - key] No tab found at index ${tabIndex} for key ${key}.`);
                 }
             });
         }
+    } else if (type === 'cancel_pick_mode') {
+        console.log(`[onMessage - cancel_pick_mode] Received cancellation request.`);
+        if (tabMoveTimeoutId) {
+            clearTimeout(tabMoveTimeoutId);
+            console.log(`[onMessage - cancel_pick_mode] Cleared active timer ${tabMoveTimeoutId}.`);
+            tabMoveTimeoutId = null;
+        }
+        pendingMoveInfo = { tabId: null, initialDuration: 5000, startTime: 0, timePaused: 0 };
+        console.log(`[onMessage - cancel_pick_mode] Reset pendingMoveInfo: ${JSON.stringify(pendingMoveInfo)}`);
+
+        revertAllTabTitlesAndCleanUp();
+
+        // Optionally, broadcast to content scripts just in case, though Escape should handle its own instance.
+        // chrome.tabs.query({ currentWindow: true }, (tabs) => {
+        //     tabs.forEach(tab => {
+        //         chrome.tabs.sendMessage(tab.id, { type: 'cancelPickModeGlobally' }).catch(e => console.log(`Error sending cancelPickModeGlobally to tab ${tab.id}: ${e}`));
+        //     });
+        // });
+    } else if (type === 'pick_mode_timeout') {
+        console.log(`[onMessage - pick_mode_timeout] Received pick_mode_timeout from content script for tab ${sender.tab ? sender.tab.id : 'unknown'}.`);
+        if (tabMoveTimeoutId) {
+            clearTimeout(tabMoveTimeoutId);
+            console.log(`[onMessage - pick_mode_timeout] Cleared active timer ${tabMoveTimeoutId}.`);
+            tabMoveTimeoutId = null;
+        }
+        pendingMoveInfo = { tabId: null, initialDuration: 5000, startTime: 0, timePaused: 0 };
+        console.log(`[onMessage - pick_mode_timeout] Reset pendingMoveInfo: ${JSON.stringify(pendingMoveInfo)}`);
+
+        revertAllTabTitlesAndCleanUp();
+        console.log('[onMessage - pick_mode_timeout] Timer cleared, pendingInfo reset, and titles reverted due to pick_mode_timeout.');
     }
 });
+
+function revertAllTabTitlesAndCleanUp() {
+    console.log('[revertAllTabTitlesAndCleanUp] Starting process to revert titles for all tabs.');
+    chrome.tabs.query({ currentWindow: true }, (tabs) => {
+        if (!tabs || tabs.length === 0) {
+            console.log('[revertAllTabTitlesAndCleanUp] No tabs found in current window.');
+            return;
+        }
+        tabs.forEach((tab) => {
+            // console.log(`[revertAllTabTitlesAndCleanUp] Attempting to revert title for tab ${tab.id}`);
+            chrome.scripting.executeScript({
+                target: { tabId: tab.id, allFrames: true }, // allFrames might be important if titles were set in iframes too
+                func: function() {
+                    if (typeof document.oldTitle !== 'undefined') {
+                        // console.log(`[ContentScript Revert] Reverting title for ${document.location.href} to "${document.oldTitle}"`);
+                        document.title = document.oldTitle;
+                        delete document.oldTitle;
+                    } else {
+                        // console.log(`[ContentScript Revert] No oldTitle found for ${document.location.href}`);
+                    }
+                }
+            }).catch(err => console.warn(`[revertAllTabTitlesAndCleanUp] Error reverting title for tab ${tab.id}: ${err}`));
+        });
+        console.log('[revertAllTabTitlesAndCleanUp] Finished attempting to revert titles.');
+    });
+}
 
 // The original 'async function move(activeInfo) {...}' is now removed / replaced by the new logic.
 console.log("Background script loaded and listeners attached.");
