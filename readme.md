@@ -45,3 +45,17 @@ Finally, you can set direct shortcuts to focus your first four tabs. The suggest
 *   **Focus the fourth tab**:&nbsp;&nbsp;`Alt+;`
 
 You have to set these yourself at [chrome://extensions/shortcuts](chrome://extensions/shortcuts).
+
+### Move Tab to First Position
+
+You can move the current tab to the first position using a keyboard shortcut.
+
+*   **Move current tab to the front**: `Alt+G` (default)
+
+### Pin a Tab
+
+To prevent a tab from being automatically reordered, you can "pin" it. Pinned tabs will stay where they are. This is useful for tabs you always want to keep in a specific place, like your email or a music player.
+
+To pin or unpin a tab, you first need to set a keyboard shortcut for the "toggle-pin" command at [chrome://extensions/shortcuts](chrome://extensions/shortcuts). Once you've set a shortcut, you can use it to toggle the pinned state of the current tab.
+
+When a tab is pinned, you'll see a "📌" icon at the beginning of its title.

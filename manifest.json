@@ -79,6 +79,17 @@
       },
       "description": "Select a tab by letter",
       "global": true
+    },
+    "move-to-first": {
+      "suggested_key": {
+        "default": "Alt+G"
+      },
+      "description": "Move the current tab to the first position",
+      "global": true
+    },
+    "toggle-pin": {
+      "description": "Toggle pin state of the current tab",
+      "global": true
     }
   }
 }
