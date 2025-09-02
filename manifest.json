@@ -14,7 +14,8 @@
         "<all_urls>"
       ],
       "js": [
-        "mouse_tracker.js"
+        "mouse_tracker.js",
+        "check_unsaved.js"
       ]
     }
   ],
@@ -24,7 +25,8 @@
     "scripting",
     "commands",
     "storage",
-    "alarms"
+    "alarms",
+    "notifications"
   ],
   "host_permissions": [
     "*://*/*",
