@@ -12,7 +12,7 @@ function isUrlRestricted(url) {
 
 let reorderDelay = 5000; // Default value in ms, will be updated from storage.
 let autoCloseEnabled = false;
-let autoCloseTime = 1; // Default value in hours
+let autoCloseTime = 60; // Default value in minutes
 let tabLastActivated = {};
 
 // Function to load user settings and listen for changes.
@@ -21,14 +21,14 @@ function initializeSettings() {
     chrome.storage.sync.get({
         delay: 5,
         autoCloseEnabled: false,
-        autoCloseTime: 1
+        autoCloseTime: 60
     }, (items) => {
         reorderDelay = items.delay * 1000;
         autoCloseEnabled = items.autoCloseEnabled;
         autoCloseTime = items.autoCloseTime;
         console.log(`[Settings] Initial auto-reorder delay set to ${reorderDelay}ms.`);
         console.log(`[Settings] Auto-close enabled: ${autoCloseEnabled}.`);
-        console.log(`[Settings] Auto-close time: ${autoCloseTime} hour(s).`);
+        console.log(`[Settings] Auto-close time: ${autoCloseTime} minute(s).`);
     });
 
     // Listen for changes to settings.
@@ -50,7 +50,7 @@ function initializeSettings() {
             }
             if (changes.autoCloseTime) {
                 autoCloseTime = changes.autoCloseTime.newValue;
-                console.log(`[Settings] Auto-close time updated to ${autoCloseTime} hour(s).`);
+                console.log(`[Settings] Auto-close time updated to ${autoCloseTime} minute(s).`);
             }
         }
     });
@@ -531,7 +531,7 @@ async function closeOldTabs() {
 
     const tabs = await chrome.tabs.query({});
     const now = Date.now();
-    const autoCloseTimeMs = autoCloseTime * 60 * 60 * 1000;
+    const autoCloseTimeMs = autoCloseTime * 60 * 1000;
 
     for (const tab of tabs) {
         if (pinnedTabs.includes(tab.id)) {

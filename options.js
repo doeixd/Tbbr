@@ -24,7 +24,7 @@ function restore_options() {
   chrome.storage.sync.get({
     delay: 5,
     autoCloseEnabled: false,
-    autoCloseTime: 1
+    autoCloseTime: 60
   }, function(items) {
     document.getElementById('delay').value = items.delay;
     document.getElementById('autoCloseEnabled').checked = items.autoCloseEnabled;
