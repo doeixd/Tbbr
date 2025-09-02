@@ -1,5 +1,15 @@
 const listOfLetters = ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', 'u', 'i', 'o', 'p', 'n', 'm', ',', '.', 'q', 'w', 'e', 'r', 't', 'y', 'b', 'v', 'c', 'x', 'z'];
 
+function isUrlRestricted(url) {
+    if (!url) return true;
+    // Extensions are not allowed to script pages with chrome://, edge://, or about: schemes,
+    // nor can they script the Chrome Web Store.
+    return url.startsWith('chrome://') ||
+           url.startsWith('edge://') ||
+           url.startsWith('about:') ||
+           url.startsWith('https://chrome.google.com/webstore/');
+}
+
 let reorderDelay = 5000; // Default value in ms, will be updated from storage.
 let autoCloseEnabled = false;
 let autoCloseTime = 1; // Default value in hours
@@ -82,6 +92,12 @@ function updateTabTitle(tabId, isPinned) {
             return;
         }
 
+        // Do not attempt to modify tabs on restricted pages.
+        if (isUrlRestricted(tab.url)) {
+            console.log(`[updateTabTitle] Skipping title update for restricted URL: ${tab.url}`);
+            return;
+        }
+
         let newTitle = tab.title;
         const pinMarker = "📌 ";
 
@@ -161,6 +177,11 @@ chrome.commands.onCommand.addListener((command) => {
   chrome.tabs.query({ currentWindow: true }, (tabList) => {
     if (!tabList.length) return;
     tabList.forEach((tab) => {
+      // Do not attempt to script on restricted pages.
+      if (isUrlRestricted(tab.url)) {
+        console.log(`[onCommand pick] Skipping script injection for restricted URL: ${tab.url}`);
+        return; // This acts as 'continue' in a forEach loop.
+      }
       if (tab.active) {
         chrome.scripting.executeScript({
           target: { tabId: tab.id },
@@ -492,6 +513,11 @@ function revertAllTabTitlesAndCleanUp() {
             return;
         }
         tabs.forEach((tab) => {
+            // Do not attempt to revert titles on restricted pages.
+            if (isUrlRestricted(tab.url)) {
+                console.log(`[revertAllTabTitlesAndCleanUp] Skipping title reversion for restricted URL: ${tab.url}`);
+                return;
+            }
             // console.log(`[revertAllTabTitlesAndCleanUp] Attempting to revert title for tab ${tab.id}`);
             chrome.scripting.executeScript({
                 target: { tabId: tab.id, allFrames: true }, // allFrames might be important if titles were set in iframes too
