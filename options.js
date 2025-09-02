@@ -3,11 +3,13 @@ function save_options() {
   const delay = document.getElementById('delay').value;
   const autoCloseEnabled = document.getElementById('autoCloseEnabled').checked;
   const autoCloseTime = document.getElementById('autoCloseTime').value;
+  const cycleTimeout = document.getElementById('cycleTimeout').value;
 
   chrome.storage.sync.set({
     delay: delay,
     autoCloseEnabled: autoCloseEnabled,
-    autoCloseTime: autoCloseTime
+    autoCloseTime: autoCloseTime,
+    cycleTimeout: cycleTimeout
   }, function() {
     // Update status to let user know options were saved.
     const status = document.getElementById('status');
@@ -24,11 +26,13 @@ function restore_options() {
   chrome.storage.sync.get({
     delay: 5,
     autoCloseEnabled: false,
-    autoCloseTime: 60
+    autoCloseTime: 60,
+    cycleTimeout: 3
   }, function(items) {
     document.getElementById('delay').value = items.delay;
     document.getElementById('autoCloseEnabled').checked = items.autoCloseEnabled;
     document.getElementById('autoCloseTime').value = items.autoCloseTime;
+    document.getElementById('cycleTimeout').value = items.cycleTimeout;
   });
 }
 
@@ -36,3 +40,4 @@ document.addEventListener('DOMContentLoaded', restore_options);
 document.getElementById('delay').addEventListener('change', save_options);
 document.getElementById('autoCloseEnabled').addEventListener('change', save_options);
 document.getElementById('autoCloseTime').addEventListener('change', save_options);
+document.getElementById('cycleTimeout').addEventListener('change', save_options);
