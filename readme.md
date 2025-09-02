@@ -31,70 +31,66 @@ Finally, and this is the important part, navigate to `chrome://extensions/shortc
 
 ## Usage
 
-Tbbr does a few things.
+Tbbr does a few things. All commands must have shortcuts assigned by you at `chrome://extensions/shortcuts`.
 
 ### Automatic Tab Reordering
 
-By default, after you land on a tab and wait 5 seconds (configurable in settings), it gets moved to the first position. This helps keep your current context from getting buried.
-
-This delay is configurable. You can change it by right-clicking the extension icon and selecting "Options", or by navigating to the extension's details page and clicking "Extension options".
+By default, after you land on a tab and wait 5 seconds (configurable in settings), it gets moved to the first position. This helps keep your current context from getting buried. Pinned tabs are ignored.
 
 ### Pick Mode (Tab Switching & Closing)
 
 There's a tab selection mode that lets you switch to, or close, any open tab with a couple of keystrokes.
-1.  Activate it with the keyboard shortcut you defined for the "pick" command.
-2.  The title of each tab will get a letter prepended to it. Like `s: Google Search - Results ...`
-3.  To switch to a tab, press the letter corresponding to that tab. So in that ^ example it'd be `s`
+1.  Activate it with the keyboard shortcut for the "pick" command.
+2.  The title of each tab will get a letter prepended to it, like `s: Google Search - Results ...`
+3.  To switch to a tab, press the letter corresponding to that tab.
 4.  To **close** a tab, press **Shift + letter** for that tab.
 
 There is also a dedicated "close-pick" command. If you activate pick mode using the shortcut for this command, pressing a letter will close the corresponding tab directly, without needing to hold Shift.
 
 You can cancel out of Pick Mode by hitting `Escape`.
 
-Finally, you can set direct shortcuts to focus your first four tabs. The suggested keybindings are vim-styleish:
-
-*   **Focus the first tab**&nbsp;:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`Alt+u`
-*   **Focus the second tab**: `Alt+i`
-*   **Focus the third tab** :&nbsp;&nbsp;&nbsp;&nbsp;`Alt+o`
-*   **Focus the fourth tab**:&nbsp;&nbsp;`Alt+p`
-
-You have to set these yourself at `chrome://extensions/shortcuts`.
-
-### Move Tab to First Position
-
-You can move the current tab to the first position using a keyboard shortcut.
-
-*   **Move current tab to the front**: `Alt+g` (suggested)
-
 ### Navigation Commands
-
-You can set shortcuts for these commands at `chrome://extensions/shortcuts`.
 
 #### Recency-based Navigation
 *   **Go to Last Tab**: Instantly switch to your previously active tab.
-*   **Cycle Through Previous Tabs**: Activate this command to jump to the last tab you were on. Activate it again within 3 seconds to jump to the one before that, and so on. When you stop for 3 seconds, the cycle ends, and your tab history is updated with the current tab at the front.
+*   **Cycle Through Previous Tabs**: Activate this command to jump to the last tab you were on. Activate it again (within a configurable timeout) to jump to the one before that, and so on.
 
 #### Positional Navigation
 *   **Go to Following Tab**: Switch to the tab immediately to the right (wraps around).
 *   **Go to Preceeding Tab**: Switch to the tab immediately to the left (wraps around).
 *   **Go to First Tab**: Jump to the first tab in the tab list.
 *   **Go to Last Tab in List**: Jump to the last tab in the tab list.
+*   **Focus the first tab**: `Alt+u` (suggested)
+*   **Focus the second tab**: `Alt+i` (suggested)
+*   **Focus the third tab**: `Alt+o` (suggested)
+*   **Focus the fourth tab**: `Alt+p` (suggested)
 
+### Tab Management Commands
+
+*   **Move current tab to the front**: `Alt+g` (suggested)
+*   **Reopen Last Closed Tab**: Restores the most recently closed tab or window.
+*   **Close All Preceding Tabs**: Closes all tabs to the left of the current tab.
+*   **Close All Following Tabs**: Closes all tabs to the right of the current tab.
+*   **Close All Except Current**: Closes all other tabs in the window.
 
 ### Pin a Tab
 
-To prevent a tab from being automatically reordered, you can "pin" it. Pinned tabs will stay where they are. This is useful for tabs you always want to keep in a specific place, like your email or a music player.
+To prevent a tab from being automatically reordered or closed by bulk actions, you can "pin" it. Pinned tabs will stay where they are. This is useful for tabs you always want to keep in a specific place, like your email or a music player.
 
-To pin or unpin a tab, you first need to set a keyboard shortcut for the "toggle-pin" command at `chrome://extensions/shortcuts`. Once you've set a shortcut, you can use it to toggle the pinned state of the current tab.
+To pin or unpin a tab, use the keyboard shortcut for the "toggle-pin" command. When a tab is pinned, you'll see a "📌" icon at the beginning of its title.
 
-When a tab is pinned, you'll see a "📌" icon at the beginning of its title.
+This works with Chrome's native pinning feature—if you pin a tab with your mouse, the extension will also treat it as pinned.
 
 ### Automatic Tab Closing
 
-You can enable a feature to automatically close tabs that have not been opened after a configurable amount of time. This feature is disabled by default.
+You can enable a feature to automatically close tabs that have not been used after a configurable amount of time. This feature is disabled by default and has several safeguards: it will not close pinned tabs, audible tabs, or tabs that appear to have unsaved changes.
 
-To enable it, go to the extension's options page. You can set the time in minutes (default is 60 minutes).
+*   **Close All Old Tabs**: You can also manually trigger this cleanup with a keyboard shortcut.
 
-### Close All Old Tabs
+### Extension Options
 
-You can manually trigger the closing of old tabs by using a keyboard shortcut. You'll need to set a shortcut for the "close-all-old-tabs" command at `chrome://extensions/shortcuts`. This will close all tabs that haven't been opened after the configurable time.
+You can configure the extension's behavior by right-clicking the extension icon and selecting "Options". Settings include:
+*   Auto-reorder delay.
+*   Tab cycle timeout.
+*   Enable and configure automatic tab closing.
+*   Choose whether bulk-closing commands should ignore pinned tabs (enabled by default).
