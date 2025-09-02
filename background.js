@@ -682,16 +682,36 @@ function cycleThroughTabs() {
 
 function endCycle() {
     if (!cycleState.active) return;
+
+    // ** BUG FIX START **
+    // Clear any pending auto-reorder timer from the last tab that was focused during the cycle.
+    if (tabMoveTimeoutId) {
+        clearTimeout(tabMoveTimeoutId);
+        tabMoveTimeoutId = null;
+    }
+    // ** BUG FIX END **
+
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs.length > 0) {
             const finalTabId = tabs[0].id;
+            // Finalize history: make the final tab the most recent,
+            // and the original tab the second most recent.
             updateTabHistory(finalTabId);
             const originalIndex = tabHistory.indexOf(cycleState.originalTabId);
             if (originalIndex > -1) {
                 tabHistory.splice(originalIndex, 1);
             }
             tabHistory.splice(1, 0, cycleState.originalTabId);
+
+            // ** BUG FIX START **
+            // Now that the cycle is officially over, start a *new* reorder timer for the final tab.
+            // This prevents the race condition and makes behavior predictable.
+            if (isMouseInsidePage) {
+                startMoveTimer(finalTabId, reorderDelay);
+            }
+            // ** BUG FIX END **
         }
+        // Reset state
         cycleState = { active: false, timeoutId: null, originalTabId: null, currentIndex: 0 };
     });
 }
