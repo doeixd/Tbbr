@@ -66,7 +66,7 @@ You can move the current tab to the first position using a keyboard shortcut.
 
 *   **Move current tab to the front**: `Alt+g` (suggested)
 
-### New Navigation Commands
+### Navigation Commands
 
 You can set shortcuts for these new commands at `<chrome://extensions/shortcuts>`.
 
