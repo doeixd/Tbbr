@@ -25,7 +25,7 @@ This will download the extension to a folder named `Tbbr` inside your local AppD
 
 Then go to <chrome://extensions>, and turn on developer mode.
 
-After that, click *Load unpacked* and navigate to/select the directory where you downloaded the files (e.g., `~/.local/share/Tbbr` on Linux or `%LOCALAPPDATA%\Tbbr` on Windows).
+After that, click *Load unpacked* and navigate to/select the directory where you downloaded the files (e.g., `cd ~/.local/share/Tbbr` on Linux or cd "$env:LOCALAPPDATA\Tbbr"` on Windows).
 
 Finally, and this is the important part, navigate to <chrome://extensions/shortcuts>. You'll need to set your own keyboard shortcuts for the extension's commands to make them do anything.
 
