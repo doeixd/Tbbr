@@ -435,6 +435,18 @@ async function closeOldTabs() {
 // =================================================================================================
 
 function startPickMode(isCloseMode) {
+    // *** RACE CONDITION FIX START ***
+    // Immediately cancel any pending tab move operation the moment we enter pick mode.
+    // This prevents a scheduled move from firing while the user is making a selection.
+    if (tabMoveTimeoutId) {
+        clearTimeout(tabMoveTimeoutId);
+        tabMoveTimeoutId = null;
+    }
+    // Resetting pendingMoveInfo ensures that mouse movements during pick mode
+    // won't accidentally trigger a new reorder timer.
+    pendingMoveInfo = { tabId: null, initialDuration: reorderDelay, startTime: 0, timePaused: 0 };
+    // *** RACE CONDITION FIX END ***
+
     isClosePickMode = isCloseMode;
     if (pickModeTimeoutId) {
         clearTimeout(pickModeTimeoutId);
@@ -488,6 +500,8 @@ function endPickMode() {
 }
 
 function handlePickModeKeyPress(key, shiftKey) {
+    // Note: The timer is already cleared here, which is good for handling the exit from pick mode.
+    // The main fix in startPickMode prevents the race condition during pick mode itself.
     if (tabMoveTimeoutId) {
         clearTimeout(tabMoveTimeoutId);
         tabMoveTimeoutId = null;
