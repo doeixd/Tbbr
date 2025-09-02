@@ -1,36 +1,71 @@
 const listOfLetters = ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', 'u', 'i', 'o', 'p', 'n', 'm', ',', '.', 'q', 'w', 'e', 'r', 't', 'y', 'b', 'v', 'c', 'x', 'z'];
 
 let reorderDelay = 5000; // Default value in ms, will be updated from storage.
+let autoCloseEnabled = false;
+let autoCloseTime = 1; // Default value in hours
+let tabLastActivated = {};
 
-// Function to load the user's delay setting and listen for changes.
-function initializeDelaySetting() {
-    // Load the setting from storage on startup.
-    chrome.storage.sync.get({ delay: 5 }, (items) => { // Default to 5 seconds.
+// Function to load user settings and listen for changes.
+function initializeSettings() {
+    // Load settings from storage on startup.
+    chrome.storage.sync.get({
+        delay: 5,
+        autoCloseEnabled: false,
+        autoCloseTime: 1
+    }, (items) => {
         reorderDelay = items.delay * 1000;
+        autoCloseEnabled = items.autoCloseEnabled;
+        autoCloseTime = items.autoCloseTime;
         console.log(`[Settings] Initial auto-reorder delay set to ${reorderDelay}ms.`);
+        console.log(`[Settings] Auto-close enabled: ${autoCloseEnabled}.`);
+        console.log(`[Settings] Auto-close time: ${autoCloseTime} hour(s).`);
     });
 
-    // Listen for changes to the setting.
+    // Listen for changes to settings.
     chrome.storage.onChanged.addListener((changes, namespace) => {
-        if (namespace === 'sync' && changes.delay) {
-            reorderDelay = changes.delay.newValue * 1000;
-            console.log(`[Settings] Auto-reorder delay updated to ${reorderDelay}ms.`);
+        if (namespace === 'sync') {
+            if (changes.delay) {
+                reorderDelay = changes.delay.newValue * 1000;
+                console.log(`[Settings] Auto-reorder delay updated to ${reorderDelay}ms.`);
+            }
+            if (changes.autoCloseEnabled) {
+                autoCloseEnabled = changes.autoCloseEnabled.newValue;
+                console.log(`[Settings] Auto-close enabled updated to ${autoCloseEnabled}.`);
+                // If auto-close is now enabled, start the alarm. Otherwise, clear it.
+                if (autoCloseEnabled) {
+                    chrome.alarms.create('autoCloseAlarm', { periodInMinutes: 1 });
+                } else {
+                    chrome.alarms.clear('autoCloseAlarm');
+                }
+            }
+            if (changes.autoCloseTime) {
+                autoCloseTime = changes.autoCloseTime.newValue;
+                console.log(`[Settings] Auto-close time updated to ${autoCloseTime} hour(s).`);
+            }
         }
     });
 }
 
-initializeDelaySetting();
+initializeSettings();
 
 
 let isMouseInsidePage = true;
 let tabMoveTimeoutId = null;
 let pinnedTabs = [];
 
-// Load pinned tabs from storage at startup
-chrome.storage.local.get({ pinnedTabs: [] }, (result) => {
+// Load pinned tabs and tab activation times from storage at startup
+chrome.storage.local.get({ pinnedTabs: [], tabLastActivated: {} }, (result) => {
     pinnedTabs = result.pinnedTabs;
+    tabLastActivated = result.tabLastActivated;
     console.log('[Storage] Loaded pinned tabs:', pinnedTabs);
+    console.log('[Storage] Loaded tab activation times:', tabLastActivated);
 });
+
+// Function to update the last activated time for a tab
+function updateTabActivationTime(tabId) {
+    tabLastActivated[tabId] = Date.now();
+    chrome.storage.local.set({ tabLastActivated: tabLastActivated });
+}
 
 // Store tabId, initialDuration (remaining time), startTime, and timePaused
 let pendingMoveInfo = {
@@ -66,6 +101,11 @@ function updateTabTitle(tabId, isPinned) {
         }).catch(err => console.warn(`[updateTabTitle] Could not set title for tab ${tabId}: ${err.message}`));
     });
 }
+
+chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+    delete tabLastActivated[tabId];
+    chrome.storage.local.set({ tabLastActivated: tabLastActivated });
+});
 
 chrome.commands.onCommand.addListener((command) => {
   if (command === 'toggle-pin') {
@@ -110,6 +150,10 @@ chrome.commands.onCommand.addListener((command) => {
         chrome.tabs.update(tabs[0].id, { active: true });
       }
     });
+    return;
+  }
+  if (command === 'close-all-old-tabs') {
+    closeOldTabs();
     return;
   }
 
@@ -204,7 +248,14 @@ chrome.commands.onCommand.addListener((command) => {
   });
 });
 
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete') {
+        updateTabActivationTime(tabId);
+    }
+});
+
 chrome.tabs.onActivated.addListener(activeInfo => {
+    updateTabActivationTime(activeInfo.tabId);
     console.log(`[onActivated] Tab activated: ${activeInfo.tabId}. Current timer ID: ${tabMoveTimeoutId}. Mouse is ${isMouseInsidePage ? 'inside' : 'outside'}.`);
 
     // Clear any existing timer for a previous tab or the same tab if it was somehow re-activated
@@ -468,3 +519,38 @@ function revertAllTabTitlesAndCleanUp() {
 
 // The original 'async function move(activeInfo) {...}' is now removed / replaced by the new logic.
 console.log("Background script loaded and listeners attached.");
+
+// Auto-close feature
+async function closeOldTabs() {
+    if (!autoCloseEnabled) {
+        return;
+    }
+
+    const tabs = await chrome.tabs.query({});
+    const now = Date.now();
+    const autoCloseTimeMs = autoCloseTime * 60 * 60 * 1000;
+
+    for (const tab of tabs) {
+        if (pinnedTabs.includes(tab.id)) {
+            continue;
+        }
+
+        const lastActivated = tabLastActivated[tab.id];
+        if (lastActivated && (now - lastActivated > autoCloseTimeMs)) {
+            chrome.tabs.remove(tab.id);
+        }
+    }
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === 'autoCloseAlarm') {
+        closeOldTabs();
+    }
+});
+
+// Create the alarm when the extension starts if the setting is enabled
+chrome.storage.sync.get({ autoCloseEnabled: false }, (items) => {
+    if (items.autoCloseEnabled) {
+        chrome.alarms.create('autoCloseAlarm', { periodInMinutes: 1 });
+    }
+});

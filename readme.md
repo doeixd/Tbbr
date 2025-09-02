@@ -59,3 +59,13 @@ To prevent a tab from being automatically reordered, you can "pin" it. Pinned ta
 To pin or unpin a tab, you first need to set a keyboard shortcut for the "toggle-pin" command at [chrome://extensions/shortcuts](chrome://extensions/shortcuts). Once you've set a shortcut, you can use it to toggle the pinned state of the current tab.
 
 When a tab is pinned, you'll see a "📌" icon at the beginning of its title.
+
+### Automatic Tab Closing
+
+You can enable a feature to automatically close tabs that have not been opened after a configurable amount of time. This feature is disabled by default.
+
+To enable it, go to the extension's options page. You can set the time in hours (default is 1 hour).
+
+### Close All Old Tabs
+
+You can manually trigger the closing of old tabs by using a keyboard shortcut. You'll need to set a shortcut for the "close-all-old-tabs" command at [chrome://extensions/shortcuts](chrome://extensions/shortcuts). This will close all tabs that haven't been opened after the configurable time.
