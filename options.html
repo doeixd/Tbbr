@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tbbr Options</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 10px;
+        }
+        .option {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input[type="number"] {
+            width: 60px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Tbbr Settings</h1>
+    <div class="option">
+        <label for="delay">Auto-reorder delay (in seconds):</label>
+        <input type="number" id="delay" min="0">
+        <span id="status"></span>
+    </div>
+
+    <script src="options.js"></script>
+</body>
+</html>

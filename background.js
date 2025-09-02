@@ -1,11 +1,33 @@
 const listOfLetters = ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', 'u', 'i', 'o', 'p', 'n', 'm', ',', '.', 'q', 'w', 'e', 'r', 't', 'y', 'b', 'v', 'c', 'x', 'z'];
 
+let reorderDelay = 5000; // Default value in ms, will be updated from storage.
+
+// Function to load the user's delay setting and listen for changes.
+function initializeDelaySetting() {
+    // Load the setting from storage on startup.
+    chrome.storage.sync.get({ delay: 5 }, (items) => { // Default to 5 seconds.
+        reorderDelay = items.delay * 1000;
+        console.log(`[Settings] Initial auto-reorder delay set to ${reorderDelay}ms.`);
+    });
+
+    // Listen for changes to the setting.
+    chrome.storage.onChanged.addListener((changes, namespace) => {
+        if (namespace === 'sync' && changes.delay) {
+            reorderDelay = changes.delay.newValue * 1000;
+            console.log(`[Settings] Auto-reorder delay updated to ${reorderDelay}ms.`);
+        }
+    });
+}
+
+initializeDelaySetting();
+
+
 let isMouseInsidePage = true;
 let tabMoveTimeoutId = null;
 // Store tabId, initialDuration (remaining time), startTime, and timePaused
 let pendingMoveInfo = {
     tabId: null,
-    initialDuration: 5000, // The full duration, or remaining duration when paused
+    initialDuration: reorderDelay, // The full duration, or remaining duration when paused
     startTime: 0,       // Timestamp when timer (re)started
     timePaused: 0       // Timestamp when timer was paused
 };
@@ -63,8 +85,8 @@ chrome.commands.onCommand.addListener((command) => {
                     return;
                 }
                 if (listOfLetters.includes(e.key)) {
-                    console.log(`[ContentScript] Letter key '${e.key}' pressed. Sending message and cleaning up.`);
-                    chrome.runtime.sendMessage({ key: e.key }); // Will be handled by background.js onMessage for tab switching
+                    console.log(`[ContentScript] Letter key '${e.key}' pressed. Shift: ${e.shiftKey}. Sending message and cleaning up.`);
+                    chrome.runtime.sendMessage({ key: e.key, shiftKey: e.shiftKey }); // Pass shift key status
                     // No longer sending {type: "FROM_PAGE"} or dispatching 'picked' event directly from here.
                     // The background script will manage title reversion upon receiving the key.
                     cleanupListener('Letter key');
@@ -123,10 +145,10 @@ chrome.tabs.onActivated.addListener(activeInfo => {
     }
     
     // Initialize pendingMoveInfo for the newly activated tab
-    // The full duration for a new tab focus is 5000ms.
+    // The full duration for a new tab focus is the configured delay.
     pendingMoveInfo = {
         tabId: activeInfo.tabId,
-        initialDuration: 5000,
+        initialDuration: reorderDelay,
         startTime: 0, // Will be set by startMoveTimer or when resuming
         timePaused: 0 
     };
@@ -219,8 +241,8 @@ function startMoveTimer(tabId, duration) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    const { key, type } = message;
-    console.log(`[onMessage] Received message: type='${type}', key='${key}'. Current tabMoveTimeoutId: ${tabMoveTimeoutId}, pendingMoveInfo: ${JSON.stringify(pendingMoveInfo)}`);
+    const { key, type, shiftKey } = message; // Destructure shiftKey
+    console.log(`[onMessage] Received message: type='${type}', key='${key}', shiftKey='${shiftKey}'. Current tabMoveTimeoutId: ${tabMoveTimeoutId}, pendingMoveInfo: ${JSON.stringify(pendingMoveInfo)}`);
 
     if (type === 'mouse_leave') {
         isMouseInsidePage = false;
@@ -277,25 +299,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Removed the 'picked' message type handler as it's no longer used by the content script.
     // The functionality (clearing timer, resetting info, reverting titles) is now handled by
     // the 'cancel_pick_mode' message or as part of the letter key selection flow.
-    } else if (key && listOfLetters.includes(key)) { // Ensure key exists before using it
-        console.log(`[onMessage - key] Letter key pressed: ${key}. User is selecting a tab.`);
+    } else if (key && listOfLetters.includes(key)) { // This is a tab selection/closing action
+        console.log(`[onMessage - key] Letter key pressed: ${key}. Shift: ${shiftKey}. User is performing an action.`);
         if (tabMoveTimeoutId) {
             clearTimeout(tabMoveTimeoutId);
-            console.log(`[onMessage - key] Cleared active timer ${tabMoveTimeoutId} due to letter key press.`);
+            console.log(`[onMessage - key] Cleared active timer ${tabMoveTimeoutId} due to user action.`);
             tabMoveTimeoutId = null;
         }
         // Reset pendingMoveInfo as user interaction overrides auto-move.
-        pendingMoveInfo = { tabId: null, initialDuration: 5000, startTime: 0, timePaused: 0 };
+        pendingMoveInfo = { tabId: null, initialDuration: reorderDelay, startTime: 0, timePaused: 0 };
         console.log(`[onMessage - key] Reset pendingMoveInfo: ${JSON.stringify(pendingMoveInfo)}`);
 
         const tabIndex = listOfLetters.indexOf(key);
         if (tabIndex > -1) {
             chrome.tabs.query({ index: tabIndex, currentWindow: true }, (tabs) => {
                 if (tabs && tabs.length > 0) {
-                    console.log(`[onMessage - key] Activating tab ${tabs[0].id} at index ${tabIndex} for key ${key}.`);
-                    chrome.tabs.update(tabs[0].id, { active: true, highlighted: true });
-                    // After successful activation, ensure all titles are reverted.
-                    revertAllTabTitlesAndCleanUp();
+                    const targetTabId = tabs[0].id;
+                    if (shiftKey) {
+                        // Close the tab
+                        console.log(`[onMessage - key] Closing tab ${targetTabId} at index ${tabIndex} for key Shift+${key}.`);
+                        chrome.tabs.remove(targetTabId);
+                        // We still revert titles because the pick mode is now over.
+                        revertAllTabTitlesAndCleanUp();
+                    } else {
+                        // Switch to the tab
+                        console.log(`[onMessage - key] Activating tab ${targetTabId} at index ${tabIndex} for key ${key}.`);
+                        chrome.tabs.update(targetTabId, { active: true, highlighted: true });
+                        // After successful activation, ensure all titles are reverted.
+                        revertAllTabTitlesAndCleanUp();
+                    }
                 } else {
                     console.log(`[onMessage - key] No tab found at index ${tabIndex} for key ${key}.`);
                 }
@@ -308,7 +340,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             console.log(`[onMessage - cancel_pick_mode] Cleared active timer ${tabMoveTimeoutId}.`);
             tabMoveTimeoutId = null;
         }
-        pendingMoveInfo = { tabId: null, initialDuration: 5000, startTime: 0, timePaused: 0 };
+        pendingMoveInfo = { tabId: null, initialDuration: reorderDelay, startTime: 0, timePaused: 0 };
         console.log(`[onMessage - cancel_pick_mode] Reset pendingMoveInfo: ${JSON.stringify(pendingMoveInfo)}`);
 
         revertAllTabTitlesAndCleanUp();
@@ -326,7 +358,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             console.log(`[onMessage - pick_mode_timeout] Cleared active timer ${tabMoveTimeoutId}.`);
             tabMoveTimeoutId = null;
         }
-        pendingMoveInfo = { tabId: null, initialDuration: 5000, startTime: 0, timePaused: 0 };
+        pendingMoveInfo = { tabId: null, initialDuration: reorderDelay, startTime: 0, timePaused: 0 };
         console.log(`[onMessage - pick_mode_timeout] Reset pendingMoveInfo: ${JSON.stringify(pendingMoveInfo)}`);
 
         revertAllTabTitlesAndCleanUp();
