@@ -24,6 +24,14 @@ initializeDelaySetting();
 
 let isMouseInsidePage = true;
 let tabMoveTimeoutId = null;
+let pinnedTabs = [];
+
+// Load pinned tabs from storage at startup
+chrome.storage.local.get({ pinnedTabs: [] }, (result) => {
+    pinnedTabs = result.pinnedTabs;
+    console.log('[Storage] Loaded pinned tabs:', pinnedTabs);
+});
+
 // Store tabId, initialDuration (remaining time), startTime, and timePaused
 let pendingMoveInfo = {
     tabId: null,
@@ -32,7 +40,69 @@ let pendingMoveInfo = {
     timePaused: 0       // Timestamp when timer was paused
 };
 
+function updateTabTitle(tabId, isPinned) {
+    chrome.tabs.get(tabId, (tab) => {
+        if (chrome.runtime.lastError) {
+            console.error(`Error getting tab ${tabId}: ${chrome.runtime.lastError.message}`);
+            return;
+        }
+
+        let newTitle = tab.title;
+        const pinMarker = "📌 ";
+
+        // Remove existing pin marker to handle both pinning and unpinning
+        if (newTitle.startsWith(pinMarker)) {
+            newTitle = newTitle.substring(pinMarker.length);
+        }
+
+        if (isPinned) {
+            newTitle = pinMarker + newTitle;
+        }
+
+        chrome.scripting.executeScript({
+            target: { tabId: tabId },
+            func: (title) => { document.title = title; },
+            args: [newTitle]
+        }).catch(err => console.warn(`[updateTabTitle] Could not set title for tab ${tabId}: ${err.message}`));
+    });
+}
+
 chrome.commands.onCommand.addListener((command) => {
+  if (command === 'toggle-pin') {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs.length > 0) {
+            const tab = tabs[0];
+            const tabId = tab.id;
+            const index = pinnedTabs.indexOf(tabId);
+
+            if (index > -1) {
+                // Unpin tab
+                pinnedTabs.splice(index, 1);
+                console.log(`[Pinning] Tab ${tabId} unpinned.`);
+                updateTabTitle(tabId, false); // Revert title
+            } else {
+                // Pin tab
+                pinnedTabs.push(tabId);
+                console.log(`[Pinning] Tab ${tabId} pinned.`);
+                updateTabTitle(tabId, true); // Add pin marker
+            }
+
+            // Save the updated list to storage
+            chrome.storage.local.set({ pinnedTabs: pinnedTabs }, () => {
+                console.log('[Storage] Updated pinned tabs saved.');
+            });
+        }
+    });
+    return;
+  }
+  if (command === 'move-to-first') {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs.length > 0) {
+        chrome.tabs.move(tabs[0].id, { index: 0 });
+      }
+    });
+    return;
+  }
   if (command.startsWith('focus-tab-')) {
     const tabIndex = parseInt(command.split('-')[2]) - 1;
     chrome.tabs.query({ index: tabIndex, currentWindow: true }, (tabs) => {
@@ -168,6 +238,10 @@ chrome.tabs.onActivated.addListener(activeInfo => {
 });
 
 function startMoveTimer(tabId, duration) {
+    if (pinnedTabs.includes(tabId)) {
+        console.log(`[startMoveTimer] Tab ${tabId} is pinned. Aborting move.`);
+        return;
+    }
     if (tabMoveTimeoutId) { // Should ideally be cleared before calling, but as a safeguard
         clearTimeout(tabMoveTimeoutId); 
         console.log(`Cleared pre-existing timer ${tabMoveTimeoutId} before starting new one.`);
