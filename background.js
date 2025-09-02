@@ -1,4 +1,3 @@
-
 // =================================================================================================
 // Global Variables and Constants
 // =================================================================================================
@@ -702,14 +701,28 @@ function togglePin() {
         if (tabs.length > 0) {
             const tab = tabs[0];
             const tabId = tab.id;
-            const index = pinnedTabs.indexOf(tabId);
 
-            if (index > -1) {
-                pinnedTabs.splice(index, 1);
-                updateTabTitle(tabId, false);
+            // If tab is natively pinned, the action is to unpin it natively.
+            if (tab.pinned) {
+                chrome.tabs.update(tabId, { pinned: false });
+                // Also remove from our internal list just in case it was there.
+                const index = pinnedTabs.indexOf(tabId);
+                if (index > -1) {
+                    pinnedTabs.splice(index, 1);
+                }
+                updateTabTitle(tabId, false); // Clean up title emoji
             } else {
-                pinnedTabs.push(tabId);
-                updateTabTitle(tabId, true);
+                // If not natively pinned, toggle its state in our internal list.
+                const index = pinnedTabs.indexOf(tabId);
+                if (index > -1) {
+                    // It's in our list, so unpin it.
+                    pinnedTabs.splice(index, 1);
+                    updateTabTitle(tabId, false);
+                } else {
+                    // It's not in our list, so pin it.
+                    pinnedTabs.push(tabId);
+                    updateTabTitle(tabId, true);
+                }
             }
 
             chrome.storage.local.set({ pinnedTabs: pinnedTabs });
@@ -810,4 +823,33 @@ function isTabPinned(tab) {
     if (!tab) return false;
     // Check native browser pin, our internal list, or a title marker
     return tab.pinned || pinnedTabs.includes(tab.id) || (tab.title && tab.title.startsWith("📌"));
+}
+
+function updateTabTitle(tabId, isPinned) {
+    chrome.tabs.get(tabId, (tab) => {
+        if (chrome.runtime.lastError || !tab) {
+            return;
+        }
+
+        if (isUrlRestricted(tab.url)) {
+            return;
+        }
+
+        let newTitle = tab.title;
+        const pinMarker = "📌 ";
+
+        if (newTitle.startsWith(pinMarker)) {
+            newTitle = newTitle.substring(pinMarker.length);
+        }
+
+        if (isPinned) {
+            newTitle = pinMarker + newTitle;
+        }
+
+        chrome.scripting.executeScript({
+            target: { tabId: tabId },
+            func: (title) => { document.title = title; },
+            args: [newTitle]
+        }).catch(err => {});
+    });
 }
