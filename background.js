@@ -3,10 +3,11 @@ const listOfLetters = ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', 'u', 'i
 function isUrlRestricted(url) {
     if (!url) return true;
     // Extensions are not allowed to script pages with chrome://, edge://, or about: schemes,
-    // nor can they script the Chrome Web Store.
+    // their own internal pages, or the Chrome Web Store.
     return url.startsWith('chrome://') ||
            url.startsWith('edge://') ||
            url.startsWith('about:') ||
+           url.startsWith('chrome-extension://') ||
            url.startsWith('https://chrome.google.com/webstore/');
 }
 
