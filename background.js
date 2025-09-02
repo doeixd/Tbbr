@@ -11,6 +11,16 @@ let pendingMoveInfo = {
 };
 
 chrome.commands.onCommand.addListener((command) => {
+  if (command.startsWith('focus-tab-')) {
+    const tabIndex = parseInt(command.split('-')[2]) - 1;
+    chrome.tabs.query({ index: tabIndex, currentWindow: true }, (tabs) => {
+      if (tabs.length > 0) {
+        chrome.tabs.update(tabs[0].id, { active: true });
+      }
+    });
+    return;
+  }
+
   if (!(command == 'pick')) return
   chrome.tabs.query({ currentWindow: true }, (tabList) => {
     if (!tabList.length) return;
