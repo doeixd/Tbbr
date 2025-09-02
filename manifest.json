@@ -1,7 +1,7 @@
 {
   "name": "Tbbr",
   "description": "Make the most recently opened tab the first tab.",
-  "version": "1.1",
+  "version": "1.2",
   "manifest_version": 3,
   "action": {},
   "background": {
@@ -122,6 +122,10 @@
     },
     "close-all-except-current": {
       "description": "Close all tabs except the current one",
+      "global": true
+    },
+    "toggle-countdown-timers": {
+      "description": "Show/hide time until tab is considered 'old'",
       "global": true
     }
   }
