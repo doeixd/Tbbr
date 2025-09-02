@@ -15,6 +15,14 @@ let reorderDelay = 5000; // Default value in ms, will be updated from storage.
 let autoCloseEnabled = false;
 let autoCloseTime = 60; // Default value in minutes
 let tabLastActivated = {};
+let tabHistory = []; // To store tab activation order
+let cycleState = {
+    active: false,
+    timeoutId: null,
+    originalTabId: null,
+    currentIndex: 0
+};
+const CYCLE_TIMEOUT_MS = 3000; // 3 seconds
 
 // Function to load user settings and listen for changes.
 function initializeSettings() {
@@ -63,6 +71,7 @@ initializeSettings();
 let isMouseInsidePage = true;
 let tabMoveTimeoutId = null;
 let pickModeTimeoutId = null;
+let isClosePickMode = false;
 let pinnedTabs = [];
 
 // Load pinned tabs and tab activation times from storage at startup
@@ -71,7 +80,32 @@ chrome.storage.local.get({ pinnedTabs: [], tabLastActivated: {} }, (result) => {
     tabLastActivated = result.tabLastActivated;
     console.log('[Storage] Loaded pinned tabs:', pinnedTabs);
     console.log('[Storage] Loaded tab activation times:', tabLastActivated);
+    initializeTabHistory(); // Initialize history after loading dependencies
 });
+
+// Function to initialize and populate tab history
+async function initializeTabHistory() {
+    const tabs = await chrome.tabs.query({ currentWindow: true });
+    // Sort tabs by last activation time if available, otherwise by index
+    tabs.sort((a, b) => {
+        const timeA = tabLastActivated[a.id] || 0;
+        const timeB = tabLastActivated[b.id] || 0;
+        return timeB - timeA;
+    });
+    tabHistory = tabs.map(tab => tab.id);
+    console.log('[Tab History] Initialized:', tabHistory);
+}
+
+// Function to update tab history on activation
+function updateTabHistory(tabId) {
+    // Remove tabId if it exists in the history
+    const index = tabHistory.indexOf(tabId);
+    if (index > -1) {
+        tabHistory.splice(index, 1);
+    }
+    // Add tabId to the front of the history
+    tabHistory.unshift(tabId);
+}
 
 // Function to update the last activated time for a tab
 function updateTabActivationTime(tabId) {
@@ -123,6 +157,12 @@ function updateTabTitle(tabId, isPinned) {
 chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
     delete tabLastActivated[tabId];
     chrome.storage.local.set({ tabLastActivated: tabLastActivated });
+
+    // Remove from tab history
+    const index = tabHistory.indexOf(tabId);
+    if (index > -1) {
+        tabHistory.splice(index, 1);
+    }
 });
 
 // Content script for the active tab (polite method)
@@ -216,6 +256,7 @@ function endPickMode() {
         clearTimeout(pickModeTimeoutId);
         pickModeTimeoutId = null;
     }
+    isClosePickMode = false; // Reset close mode state
 
     // 2. Broadcast cleanup message to all tabs
     chrome.tabs.query({ currentWindow: true }, (tabs) => {
@@ -231,6 +272,42 @@ function endPickMode() {
 }
 
 chrome.commands.onCommand.addListener((command) => {
+  if (command === 'go-to-last-tab') {
+    if (tabHistory.length > 1) {
+        chrome.tabs.update(tabHistory[1], { active: true });
+    }
+    return;
+  }
+  if (command === 'cycle-through-tabs') {
+    if (tabHistory.length < 2) return; // Nothing to cycle to
+
+    if (!cycleState.active) {
+        // Start new cycle
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs.length > 0) {
+                cycleState.originalTabId = tabs[0].id;
+                cycleState.active = true;
+                cycleState.currentIndex = 1; // Start with the next tab in history
+                if (tabHistory[cycleState.currentIndex] === cycleState.originalTabId) {
+                  cycleState.currentIndex = (cycleState.currentIndex + 1) % tabHistory.length;
+                }
+                chrome.tabs.update(tabHistory[cycleState.currentIndex], { active: true });
+                cycleState.timeoutId = setTimeout(endCycle, CYCLE_TIMEOUT_MS);
+            }
+        });
+    } else {
+        // Continue existing cycle
+        clearTimeout(cycleState.timeoutId);
+        cycleState.currentIndex = (cycleState.currentIndex + 1) % tabHistory.length;
+        // Skip the original tab while cycling
+        if (tabHistory[cycleState.currentIndex] === cycleState.originalTabId) {
+            cycleState.currentIndex = (cycleState.currentIndex + 1) % tabHistory.length;
+        }
+        chrome.tabs.update(tabHistory[cycleState.currentIndex], { active: true });
+        cycleState.timeoutId = setTimeout(endCycle, CYCLE_TIMEOUT_MS);
+    }
+    return;
+  }
   if (command === 'toggle-pin') {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs.length > 0) {
@@ -252,6 +329,14 @@ chrome.commands.onCommand.addListener((command) => {
 
             // Save the updated list to storage
             chrome.storage.local.set({ pinnedTabs: pinnedTabs });
+
+            // If a timer is running for this tab, cancel it to prevent a race condition
+            // where a newly pinned tab is moved.
+            if (tabMoveTimeoutId && pendingMoveInfo.tabId === tabId) {
+                clearTimeout(tabMoveTimeoutId);
+                tabMoveTimeoutId = null;
+                console.log(`[Pinning] Cleared move timer for tab ${tabId}.`);
+            }
         }
     });
     return;
@@ -282,9 +367,9 @@ chrome.commands.onCommand.addListener((command) => {
     return;
   }
 
-  if (!(command == 'pick')) return
-
-  if (pickModeTimeoutId) {
+  if (command === 'pick' || command === 'close-pick') {
+    isClosePickMode = (command === 'close-pick');
+    if (pickModeTimeoutId) {
     clearTimeout(pickModeTimeoutId);
   }
   pickModeTimeoutId = setTimeout(endPickMode, 5000);
@@ -337,6 +422,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 chrome.tabs.onActivated.addListener(activeInfo => {
     updateTabActivationTime(activeInfo.tabId);
+    updateTabHistory(activeInfo.tabId);
     console.log(`[onActivated] Tab activated: ${activeInfo.tabId}. Current timer ID: ${tabMoveTimeoutId}. Mouse is ${isMouseInsidePage ? 'inside' : 'outside'}.`);
 
     // Clear any existing timer for a previous tab or the same tab if it was somehow re-activated
@@ -518,8 +604,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             chrome.tabs.query({ index: tabIndex, currentWindow: true }, (tabs) => {
                 if (tabs && tabs.length > 0) {
                     const targetTabId = tabs[0].id;
-                    if (shiftKey) {
-                        console.log(`[onMessage - key] Closing tab ${targetTabId} at index ${tabIndex}`);
+                    if (shiftKey || isClosePickMode) {
+                        console.log(`[onMessage - key] Closing tab ${targetTabId} at index ${tabIndex}. CloseMode: ${isClosePickMode}, Shift: ${shiftKey}`);
                         chrome.tabs.remove(targetTabId);
                     } else {
                         console.log(`[onMessage - key] Activating tab ${targetTabId} at index ${tabIndex}`);
@@ -619,3 +705,25 @@ chrome.storage.sync.get({ autoCloseEnabled: false }, (items) => {
         chrome.alarms.create('autoCloseAlarm', { periodInMinutes: 1 });
     }
 });
+
+function endCycle() {
+    if (!cycleState.active) return;
+    console.log('[Tab Cycle] Cycle ended.');
+
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs.length > 0) {
+            const finalTabId = tabs[0].id;
+            // Finalize history: make the final tab the most recent,
+            // and the original tab the second most recent.
+            updateTabHistory(finalTabId);
+            // Now, manually place the original tab right after the new one.
+            const originalIndex = tabHistory.indexOf(cycleState.originalTabId);
+            if (originalIndex > -1) {
+                tabHistory.splice(originalIndex, 1);
+            }
+            tabHistory.splice(1, 0, cycleState.originalTabId);
+        }
+        // Reset state
+        cycleState = { active: false, timeoutId: null, originalTabId: null, currentIndex: 0 };
+    });
+}

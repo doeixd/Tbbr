@@ -76,6 +76,18 @@
     "clear-pick-mode": {
       "description": "Clear pick mode and restore tab titles",
       "global": true
+    },
+    "go-to-last-tab": {
+      "description": "Go to the last used tab",
+      "global": true
+    },
+    "cycle-through-tabs": {
+      "description": "Cycle through previous tabs",
+      "global": true
+    },
+    "close-pick": {
+      "description": "Select a tab to close by letter",
+      "global": true
     }
   }
 }

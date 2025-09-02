@@ -47,6 +47,8 @@ There's a tab selection mode that lets you switch to, or close, any open tab wit
 3.  To switch to a tab, press the letter corresponding to that tab. So in that ^ example it'd be `s`
 4.  To **close** a tab, press **Shift + letter** for that tab.
 
+There is also a dedicated "close-pick" command. If you activate pick mode using the shortcut for this command, pressing a letter will close the corresponding tab directly, without needing to hold Shift.
+
 You can cancel out of Pick Mode by hitting `Escape`.
 
 Finally, you can set direct shortcuts to focus your first four tabs. The suggested keybindings are vim-styleish:
@@ -63,6 +65,13 @@ You have to set these yourself at <chrome://extensions/shortcuts>.
 You can move the current tab to the first position using a keyboard shortcut.
 
 *   **Move current tab to the front**: `Alt+g` (suggested)
+
+### New Navigation Commands
+
+You can set shortcuts for these new commands at `<chrome://extensions/shortcuts>`.
+
+*   **Go to Last Tab**: Instantly switch to your previously active tab.
+*   **Cycle Through Previous Tabs**: Activate this command to jump to the last tab you were on. Activate it again within 3 seconds to jump to the one before that, and so on. When you stop for 3 seconds, the cycle ends, and your tab history is updated with the current tab at the front.
 
 ### Pin a Tab
 
