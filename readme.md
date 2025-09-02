@@ -85,7 +85,7 @@ When a tab is pinned, you'll see a "📌" icon at the beginning of its title.
 
 You can enable a feature to automatically close tabs that have not been opened after a configurable amount of time. This feature is disabled by default.
 
-To enable it, go to the extension's options page. You can set the time in hours (default is 1 hour).
+To enable it, go to the extension's options page. You can set the time in minutes (default is 60 minutes).
 
 ### Close All Old Tabs
 
