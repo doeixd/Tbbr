@@ -68,10 +68,18 @@ You can move the current tab to the first position using a keyboard shortcut.
 
 ### Navigation Commands
 
-You can set shortcuts for these new commands at `chrome://extensions/shortcuts`.
+You can set shortcuts for these commands at `chrome://extensions/shortcuts`.
 
+#### Recency-based Navigation
 *   **Go to Last Tab**: Instantly switch to your previously active tab.
 *   **Cycle Through Previous Tabs**: Activate this command to jump to the last tab you were on. Activate it again within 3 seconds to jump to the one before that, and so on. When you stop for 3 seconds, the cycle ends, and your tab history is updated with the current tab at the front.
+
+#### Positional Navigation
+*   **Go to Following Tab**: Switch to the tab immediately to the right (wraps around).
+*   **Go to Preceeding Tab**: Switch to the tab immediately to the left (wraps around).
+*   **Go to First Tab**: Jump to the first tab in the tab list.
+*   **Go to Last Tab in List**: Jump to the last tab in the tab list.
+
 
 ### Pin a Tab
 
