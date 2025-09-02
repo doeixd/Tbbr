@@ -19,6 +19,8 @@ let isMouseInsidePage = false;
 let tabMoveTimeoutId = null;
 let pickModeTimeoutId = null;
 let isClosePickMode = false;
+let areTimersVisible = false;
+let countdownIntervalId = null;
 let cycleState = {
     active: false,
     timeoutId: null,
@@ -160,6 +162,10 @@ function handleStorageChange(changes, namespace) {
             chrome.alarms.create('autoCloseAlarm', { periodInMinutes: 1 });
         } else {
             chrome.alarms.clear('autoCloseAlarm');
+            // If auto-close is disabled, also turn off the countdown timers.
+            if (areTimersVisible) {
+                toggleCountdownTimers();
+            }
         }
     }
     if (changes.autoCloseTime) {
@@ -263,6 +269,9 @@ function handleCommand(command) {
             break;
         case 'close-all-except-current':
             closeAllExceptCurrent();
+            break;
+        case 'toggle-countdown-timers':
+            toggleCountdownTimers();
             break;
         default:
             if (command.startsWith('focus-tab-')) {
@@ -377,11 +386,19 @@ async function closeOldTabs() {
     }
 
     const tabs = await chrome.tabs.query({});
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const now = Date.now();
     const autoCloseTimeMs = autoCloseTime * 60 * 1000;
 
     const closingPromises = tabs.map(tab => {
         return new Promise(async (resolve) => {
+            // *** BUG FIX START ***
+            // Do not close the currently active tab, regardless of its age.
+            if (activeTab && tab.id === activeTab.id) {
+                return resolve(false);
+            }
+            // *** BUG FIX END ***
+
             if (isTabPinned(tab) || tab.audible) {
                 return resolve(false);
             }
@@ -424,6 +441,7 @@ async function closeOldTabs() {
     if (closedTabsCount > 0) {
         chrome.notifications.create({
             type: 'basic',
+            iconUrl: 'icon128.png', // Assuming you have an icon
             title: 'Tbbr Tab Cleanup',
             message: `Closed ${closedTabsCount} old tab(s).`
         });
@@ -435,17 +453,11 @@ async function closeOldTabs() {
 // =================================================================================================
 
 function startPickMode(isCloseMode) {
-    // *** RACE CONDITION FIX START ***
-    // Immediately cancel any pending tab move operation the moment we enter pick mode.
-    // This prevents a scheduled move from firing while the user is making a selection.
     if (tabMoveTimeoutId) {
         clearTimeout(tabMoveTimeoutId);
         tabMoveTimeoutId = null;
     }
-    // Resetting pendingMoveInfo ensures that mouse movements during pick mode
-    // won't accidentally trigger a new reorder timer.
     pendingMoveInfo = { tabId: null, initialDuration: reorderDelay, startTime: 0, timePaused: 0 };
-    // *** RACE CONDITION FIX END ***
 
     isClosePickMode = isCloseMode;
     if (pickModeTimeoutId) {
@@ -500,8 +512,6 @@ function endPickMode() {
 }
 
 function handlePickModeKeyPress(key, shiftKey) {
-    // Note: The timer is already cleared here, which is good for handling the exit from pick mode.
-    // The main fix in startPickMode prevents the race condition during pick mode itself.
     if (tabMoveTimeoutId) {
         clearTimeout(tabMoveTimeoutId);
         tabMoveTimeoutId = null;
@@ -595,6 +605,108 @@ const robustListener = function(listOfLetters) {
     window.addEventListener('keydown', window.pickModeKeyDownHandler, true);
     chrome.runtime.onMessage.addListener(window.pickModeCleanupHandler);
 };
+
+// =================================================================================================
+// Feature: Countdown Timers
+// =================================================================================================
+
+function toggleCountdownTimers() {
+    areTimersVisible = !areTimersVisible;
+
+    if (areTimersVisible) {
+        if (autoCloseEnabled) {
+            startAllCountdownTimers();
+        } else {
+            console.log("Tbbr: Countdown timers require auto-close to be enabled in options.");
+            areTimersVisible = false; // Revert state because the feature can't run.
+        }
+    } else {
+        stopAllCountdownTimers();
+    }
+}
+
+function startAllCountdownTimers() {
+    if (countdownIntervalId) clearInterval(countdownIntervalId);
+    updateAllTabTimers(); // Run once immediately
+    countdownIntervalId = setInterval(updateAllTabTimers, 1000);
+}
+
+function stopAllCountdownTimers() {
+    if (countdownIntervalId) clearInterval(countdownIntervalId);
+    countdownIntervalId = null;
+    revertAllTabTitlesAndCleanUp(); // Use the existing robust title restore function
+}
+
+async function updateAllTabTimers() {
+    if (!areTimersVisible) return;
+
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const allTabs = await chrome.tabs.query({ currentWindow: true });
+
+    for (const tab of allTabs) {
+        const lastActivated = tabLastActivated[tab.id];
+        const isExcluded = !tab.id || !lastActivated || (activeTab && tab.id === activeTab.id) || isTabPinned(tab) || isUrlRestricted(tab.url);
+
+        if (isExcluded) {
+            // This tab should NOT have a timer. We'll clean it up by invoking the same
+            // logic as reverting titles, but only for this specific tab.
+            chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                func: (isPinned) => {
+                    const timerRegex = /^\[(\d{2}:\d{2}|EXPIRED)\]\s/;
+                    // Only act if a timer is actually present
+                    if (document.title.match(timerRegex)) {
+                        if (typeof document.oldTitle !== 'undefined') {
+                            let newTitle = document.oldTitle;
+                            const pinMarker = "📌 ";
+                            if (newTitle.startsWith(pinMarker)) {
+                                newTitle = newTitle.substring(pinMarker.length);
+                            }
+                            document.title = isPinned ? pinMarker + newTitle : newTitle;
+                            delete document.oldTitle;
+                        } else {
+                            document.title = document.title.replace(timerRegex, '');
+                        }
+                    }
+                },
+                args: [isTabPinned(tab)]
+            }).catch(err => {});
+        } else {
+            // This tab SHOULD have a timer. Calculate and apply it.
+            const now = Date.now();
+            const autoCloseTimeMs = autoCloseTime * 60 * 1000;
+            const deadline = lastActivated + autoCloseTimeMs;
+            const remainingMs = deadline - now;
+
+            let timeStr;
+            if (remainingMs <= 0) {
+                timeStr = "[EXPIRED] ";
+            } else {
+                const minutes = String(Math.floor(remainingMs / 60000)).padStart(2, '0');
+                const seconds = String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, '0');
+                timeStr = `[${minutes}:${seconds}] `;
+            }
+
+            chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                func: (prefix) => {
+                    const timerRegex = /^\[(\d{2}:\d{2}|EXPIRED)\]\s/;
+                    const pinMarker = "📌 ";
+
+                    if (typeof document.oldTitle === 'undefined') {
+                        document.oldTitle = document.title;
+                    }
+
+                    let baseTitle = document.oldTitle.replace(timerRegex, '').replace(pinMarker, '');
+                    document.oldTitle = baseTitle;
+
+                    document.title = prefix + (document.title.includes(pinMarker) ? pinMarker : '') + baseTitle;
+                },
+                args: [timeStr]
+            }).catch(err => {});
+        }
+    }
+}
 
 // =================================================================================================
 // Other Commands & Utility Functions
@@ -697,19 +809,14 @@ function cycleThroughTabs() {
 function endCycle() {
     if (!cycleState.active) return;
 
-    // ** BUG FIX START **
-    // Clear any pending auto-reorder timer from the last tab that was focused during the cycle.
     if (tabMoveTimeoutId) {
         clearTimeout(tabMoveTimeoutId);
         tabMoveTimeoutId = null;
     }
-    // ** BUG FIX END **
 
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs.length > 0) {
             const finalTabId = tabs[0].id;
-            // Finalize history: make the final tab the most recent,
-            // and the original tab the second most recent.
             updateTabHistory(finalTabId);
             const originalIndex = tabHistory.indexOf(cycleState.originalTabId);
             if (originalIndex > -1) {
@@ -717,15 +824,10 @@ function endCycle() {
             }
             tabHistory.splice(1, 0, cycleState.originalTabId);
 
-            // ** BUG FIX START **
-            // Now that the cycle is officially over, start a *new* reorder timer for the final tab.
-            // This prevents the race condition and makes behavior predictable.
             if (isMouseInsidePage) {
                 startMoveTimer(finalTabId, reorderDelay);
             }
-            // ** BUG FIX END **
         }
-        // Reset state
         cycleState = { active: false, timeoutId: null, originalTabId: null, currentIndex: 0 };
     });
 }
@@ -736,24 +838,19 @@ function togglePin() {
             const tab = tabs[0];
             const tabId = tab.id;
 
-            // If tab is natively pinned, the action is to unpin it natively.
             if (tab.pinned) {
                 chrome.tabs.update(tabId, { pinned: false });
-                // Also remove from our internal list just in case it was there.
                 const index = pinnedTabs.indexOf(tabId);
                 if (index > -1) {
                     pinnedTabs.splice(index, 1);
                 }
-                updateTabTitle(tabId, false); // Clean up title emoji
+                updateTabTitle(tabId, false);
             } else {
-                // If not natively pinned, toggle its state in our internal list.
                 const index = pinnedTabs.indexOf(tabId);
                 if (index > -1) {
-                    // It's in our list, so unpin it.
                     pinnedTabs.splice(index, 1);
                     updateTabTitle(tabId, false);
                 } else {
-                    // It's not in our list, so pin it.
                     pinnedTabs.push(tabId);
                     updateTabTitle(tabId, true);
                 }
@@ -830,11 +927,7 @@ function revertAllTabTitlesAndCleanUp() {
                         if (newTitle.startsWith(pinMarker)) {
                             newTitle = newTitle.substring(pinMarker.length);
                         }
-                        if (isPinned) {
-                            document.title = pinMarker + newTitle;
-                        } else {
-                            document.title = newTitle;
-                        }
+                        document.title = isPinned ? pinMarker + newTitle : newTitle;
                         delete document.oldTitle;
                     }
                 }
@@ -853,10 +946,8 @@ function isUrlRestricted(url) {
            url.startsWith('https://chrome.google.com/webstore/');
 }
 
-// A comprehensive check to see if a tab should be treated as pinned
 function isTabPinned(tab) {
     if (!tab) return false;
-    // Check native browser pin, our internal list, or a title marker
     return tab.pinned || pinnedTabs.includes(tab.id) || (tab.title && tab.title.startsWith("📌"));
 }
 
