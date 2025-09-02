@@ -39,6 +39,38 @@
     ]
   },
   "commands": {
+        "focus-tab-1": {
+      "suggested_key": {
+        "default": "Alt+j",
+        "mac": "MacCtrl+1"
+      },
+      "description": "Focus the first tab",
+      "global": true
+    },
+    "focus-tab-2": {
+      "suggested_key": {
+        "default": "Alt+k",
+        "mac": "MacCtrl+2"
+      },
+      "description": "Focus the second tab",
+      "global": true
+    },
+    "focus-tab-3": {
+      "suggested_key": {
+        "default": "Alt+l",
+        "mac": "MacCtrl+3"
+      },
+      "description": "Focus the third tab",
+      "global": true
+    },
+    "focus-tab-4": {
+      "suggested_key": {
+        "default": "Alt+;",
+        "mac": "MacCtrl+4"
+      },
+      "description": "Focus the fourth tab",
+      "global": true
+    },
     "pick": {
       "suggested_key": {
         "default": "Alt+B",
