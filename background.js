@@ -849,6 +849,7 @@ function isUrlRestricted(url) {
            url.startsWith('edge://') ||
            url.startsWith('about:') ||
            url.startsWith('chrome-extension://') ||
+           url.startsWith('edge-extension://') ||
            url.startsWith('https://chrome.google.com/webstore/');
 }
 
