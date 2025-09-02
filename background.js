@@ -199,6 +199,9 @@ function handleCommand(command) {
         case 'go-to-last-tab-in-list':
             goToLastTabInList();
             break;
+        case 'reopen-last-closed-tab':
+            reopenLastClosedTab();
+            break;
         default:
             if (command.startsWith('focus-tab-')) {
                 focusTabByIndex(command);
@@ -259,6 +262,8 @@ function handleMouseEnter() {
 }
 
 function startMoveTimer(tabId, duration) {
+    // Perform a quick synchronous check first. This avoids unnecessary timer setup
+    // for tabs that are explicitly pinned in our internal list.
     if (pinnedTabs.includes(tabId)) {
         return;
     }
@@ -277,10 +282,17 @@ function startMoveTimer(tabId, duration) {
         }
 
         const [currentActiveTab] = await chrome.tabs.query({ currentWindow: true, active: true });
+
+        // Before moving, perform the full check, as the tab title might have changed
+        // or it might be a natively pinned tab.
         if (currentActiveTab && currentActiveTab.id === pendingMoveInfo.tabId) {
+            if (isTabPinned(currentActiveTab)) {
+                return; // Don't move pinned tabs
+            }
             try {
                 await chrome.tabs.move(pendingMoveInfo.tabId, { index: 0 });
             } catch (error) {
+                // The tab might have been closed before the move operation.
                 console.error(`Error moving tab ${pendingMoveInfo.tabId}:`, error);
             }
         }
@@ -308,7 +320,7 @@ async function closeOldTabs() {
 
     const closingPromises = tabs.map(tab => {
         return new Promise(async (resolve) => {
-            if (tab.pinned || tab.audible) {
+            if (isTabPinned(tab) || tab.audible) {
                 return resolve(false);
             }
 
@@ -568,6 +580,17 @@ function goToLastTab() {
     }
 }
 
+function reopenLastClosedTab() {
+    chrome.sessions.getRecentlyClosed({ maxResults: 1 }, (sessions) => {
+        if (sessions && sessions.length > 0) {
+            const lastClosedSession = sessions[0];
+            if (lastClosedSession.tab || lastClosedSession.window) {
+                chrome.sessions.restore(lastClosedSession.sessionId);
+            }
+        }
+    });
+}
+
 function cycleThroughTabs() {
     if (tabHistory.length < 2) return;
 
@@ -717,4 +740,11 @@ function isUrlRestricted(url) {
            url.startsWith('about:') ||
            url.startsWith('chrome-extension://') ||
            url.startsWith('https://chrome.google.com/webstore/');
+}
+
+// A comprehensive check to see if a tab should be treated as pinned
+function isTabPinned(tab) {
+    if (!tab) return false;
+    // Check native browser pin, our internal list, or a title marker
+    return tab.pinned || pinnedTabs.includes(tab.id) || (tab.title && tab.title.startsWith("📌"));
 }

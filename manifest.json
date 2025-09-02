@@ -26,7 +26,8 @@
     "commands",
     "storage",
     "alarms",
-    "notifications"
+    "notifications",
+    "sessions"
   ],
   "host_permissions": [
     "*://*/*",
@@ -105,6 +106,10 @@
     },
     "go-to-last-tab-in-list": {
         "description": "Go to the last tab in the tab list",
+        "global": true
+    },
+    "reopen-last-closed-tab": {
+        "description": "Reopen the last closed tab",
         "global": true
     }
   }
