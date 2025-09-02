@@ -166,32 +166,16 @@ chrome.commands.onCommand.addListener((command) => {
           target: { tabId: tab.id },
           args: [listOfLetters],
           func: function(listOfLetters) {
-            const focusElement = document.createElement('input');
-            focusElement.style.cssText += `position:fixed;opacity:0;top:50%;width:0;height:0;padding:0;border:0;`;
-            document.body.appendChild(focusElement);
-            focusElement.focus();
-            console.log('[ContentScript] Pick mode activated. Focus element created and focused.');
+            console.log('[ContentScript] Pick mode activated. Listening for keydown events on window.');
 
             let timeoutId = null;
 
-            function cleanupListener(source) {
-                console.log(`[ContentScript] Cleanup called from ${source}. Removing listener and focus element.`);
-                focusElement.removeEventListener('keydown', handleKeyDown);
-                if (focusElement.parentNode) {
-                    focusElement.blur();
-                    focusElement.remove();
-                }
-                if (timeoutId) {
-                    clearTimeout(timeoutId);
-                    timeoutId = null;
-                }
-                // Attempt to remove the message listener as well if it's specific to this instance
-                // This is tricky as chrome.runtime.onMessage is global in the content script context if not managed carefully.
-                // For now, we'll rely on the fact that a new pick command will overwrite the old listener context if this script is re-injected.
-            }
+            const handleKeyDown = (e) => {
+                // Stop the event from propagating to the page itself, which might trigger other actions.
+                e.stopImmediatePropagation();
+                e.preventDefault();
 
-            function handleKeyDown(e) {
-                console.log('[ContentScript] Keydown event: ', e.key);
+                console.log('[ContentScript] Keydown event on window: ', e.key);
                 if (e.key === 'Escape') {
                     console.log('[ContentScript] Escape key pressed. Sending cancel_pick_mode message.');
                     chrome.runtime.sendMessage({ type: 'cancel_pick_mode' });
@@ -200,14 +184,23 @@ chrome.commands.onCommand.addListener((command) => {
                 }
                 if (listOfLetters.includes(e.key)) {
                     console.log(`[ContentScript] Letter key '${e.key}' pressed. Shift: ${e.shiftKey}. Sending message and cleaning up.`);
-                    chrome.runtime.sendMessage({ key: e.key, shiftKey: e.shiftKey }); // Pass shift key status
-                    // No longer sending {type: "FROM_PAGE"} or dispatching 'picked' event directly from here.
-                    // The background script will manage title reversion upon receiving the key.
+                    chrome.runtime.sendMessage({ key: e.key, shiftKey: e.shiftKey });
                     cleanupListener('Letter key');
+                }
+            };
+
+            function cleanupListener(source) {
+                console.log(`[ContentScript] Cleanup called from ${source}. Removing window listener.`);
+                window.removeEventListener('keydown', handleKeyDown, true);
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
                 }
             }
 
-            focusElement.addEventListener('keydown', handleKeyDown);
+            // Add the event listener to the window in the capture phase.
+            // This helps ensure it runs before other listeners on the page can cancel it.
+            window.addEventListener('keydown', handleKeyDown, true);
 
             // Timeout to automatically cancel pick mode if no key is pressed.
             timeoutId = setTimeout(() => {
