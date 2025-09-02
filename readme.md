@@ -49,12 +49,12 @@ There's a tab selection mode that lets you switch to, or close, any open tab wit
 
 You can cancel out of Pick Mode by hitting `Escape`.
 
-Finally, you can set direct shortcuts to focus your first four tabs. The suggested keybindings are vim-style:
+Finally, you can set direct shortcuts to focus your first four tabs. The suggested keybindings are vim-styleish:
 
-*   **Focus the first tab**&nbsp;:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`Alt+J`
-*   **Focus the second tab**: `Alt+K`
-*   **Focus the third tab** :&nbsp;&nbsp;&nbsp;&nbsp;`Alt+L`
-*   **Focus the fourth tab**:&nbsp;&nbsp;`Alt+;`
+*   **Focus the first tab**&nbsp;:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`Alt+u`
+*   **Focus the second tab**: `Alt+i`
+*   **Focus the third tab** :&nbsp;&nbsp;&nbsp;&nbsp;`Alt+o`
+*   **Focus the fourth tab**:&nbsp;&nbsp;`Alt+p`
 
 You have to set these yourself at <chrome://extensions/shortcuts>.
 
@@ -62,7 +62,7 @@ You have to set these yourself at <chrome://extensions/shortcuts>.
 
 You can move the current tab to the first position using a keyboard shortcut.
 
-*   **Move current tab to the front**: `Alt+G` (default)
+*   **Move current tab to the front**: `Alt+g` (suggested)
 
 ### Pin a Tab
 
