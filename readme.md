@@ -16,8 +16,8 @@ npx degit doeixd/Tbbr ~/.local/share/Tbbr
 ### Windows
 
 First, download the files. You can use this command in your terminal:
-```sh
-npx degit doeixd/Tbbr %LOCALAPPDATA%/Tbbr
+```powershell
+npx degit doeixd/Tbbr "$env:LOCALAPPDATA\Tbbr"
 ```
 This will download the extension to a folder named `Tbbr` inside your local AppData directory.
 
