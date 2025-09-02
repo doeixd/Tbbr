@@ -72,6 +72,10 @@
     "close-all-old-tabs": {
       "description": "Close all tabs that haven't been opened after a configurable time",
       "global": true
+    },
+    "clear-pick-mode": {
+      "description": "Clear pick mode and restore tab titles",
+      "global": true
     }
   }
 }

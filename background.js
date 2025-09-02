@@ -61,6 +61,7 @@ initializeSettings();
 
 let isMouseInsidePage = true;
 let tabMoveTimeoutId = null;
+let pickModeTimeoutId = null;
 let pinnedTabs = [];
 
 // Load pinned tabs and tab activation times from storage at startup
@@ -144,9 +145,7 @@ chrome.commands.onCommand.addListener((command) => {
             }
 
             // Save the updated list to storage
-            chrome.storage.local.set({ pinnedTabs: pinnedTabs }, () => {
-                console.log('[Storage] Updated pinned tabs saved.');
-            });
+            chrome.storage.local.set({ pinnedTabs: pinnedTabs });
         }
     });
     return;
@@ -172,8 +171,22 @@ chrome.commands.onCommand.addListener((command) => {
     closeOldTabs();
     return;
   }
+  if (command === 'clear-pick-mode') {
+    revertAllTabTitlesAndCleanUp();
+    return;
+  }
 
   if (!(command == 'pick')) return
+
+  if (pickModeTimeoutId) {
+    clearTimeout(pickModeTimeoutId);
+  }
+  pickModeTimeoutId = setTimeout(() => {
+    console.log('[background.js] Pick mode timed out. Reverting titles.');
+    revertAllTabTitlesAndCleanUp();
+    pickModeTimeoutId = null;
+  }, 5000);
+
   chrome.tabs.query({ currentWindow: true }, (tabList) => {
     if (!tabList.length) return;
     tabList.forEach((tab) => {
@@ -182,59 +195,35 @@ chrome.commands.onCommand.addListener((command) => {
         console.log(`[onCommand pick] Skipping script injection for restricted URL: ${tab.url}`);
         return; // This acts as 'continue' in a forEach loop.
       }
-      if (tab.active) {
-        chrome.scripting.executeScript({
+
+      // Inject key listener into all tabs.
+      chrome.scripting.executeScript({
           target: { tabId: tab.id },
           args: [listOfLetters],
           func: function(listOfLetters) {
-            console.log('[ContentScript] Pick mode activated. Listening for keydown events on window.');
-
-            let timeoutId = null;
-
             const handleKeyDown = (e) => {
-                // Stop the event from propagating to the page itself, which might trigger other actions.
+                if (document.hidden) {
+                    return;
+                }
+
                 e.stopImmediatePropagation();
                 e.preventDefault();
 
-                console.log('[ContentScript] Keydown event on window: ', e.key);
                 if (e.key === 'Escape') {
-                    console.log('[ContentScript] Escape key pressed. Sending cancel_pick_mode message.');
                     chrome.runtime.sendMessage({ type: 'cancel_pick_mode' });
-                    cleanupListener('Escape key');
-                    return;
-                }
-                if (listOfLetters.includes(e.key)) {
-                    console.log(`[ContentScript] Letter key '${e.key}' pressed. Shift: ${e.shiftKey}. Sending message and cleaning up.`);
+                } else if (listOfLetters.includes(e.key)) {
                     chrome.runtime.sendMessage({ key: e.key, shiftKey: e.shiftKey });
-                    cleanupListener('Letter key');
                 }
+                // After a key is pressed, remove the listener.
+                window.removeEventListener('keydown', handleKeyDown, true);
             };
 
-            function cleanupListener(source) {
-                console.log(`[ContentScript] Cleanup called from ${source}. Removing window listener.`);
-                window.removeEventListener('keydown', handleKeyDown, true);
-                if (timeoutId) {
-                    clearTimeout(timeoutId);
-                    timeoutId = null;
-                }
-            }
-
-            // Add the event listener to the window in the capture phase.
-            // This helps ensure it runs before other listeners on the page can cancel it.
+            // Remove any old listeners before adding a new one, just in case.
+            window.removeEventListener('keydown', handleKeyDown, true);
             window.addEventListener('keydown', handleKeyDown, true);
-
-            // Timeout to automatically cancel pick mode if no key is pressed.
-            timeoutId = setTimeout(() => {
-                console.log('[ContentScript] Pick mode timed out. Cleaning up and notifying background.');
-                chrome.runtime.sendMessage({ type: 'pick_mode_timeout' });
-                cleanupListener('Timeout');
-            }, 5000); // 5 seconds timeout
-
-            // The globalCancelListener has been removed as per cleanup requirements.
-            // The content script now primarily manages its lifecycle via direct user action (Escape, letter) or its own timeout.
           }
-        });
-      }
+      });
+
       const title = listOfLetters[tab.index] ?? tab.index.toString();
       // console.log(`[onCommand] Preparing to set title for tab ${tab.id} (index ${tab.index}) to "${title}"`);
       chrome.scripting.executeScript(
@@ -439,6 +428,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // The functionality (clearing timer, resetting info, reverting titles) is now handled by
     // the 'cancel_pick_mode' message or as part of the letter key selection flow.
     } else if (key && listOfLetters.includes(key)) { // This is a tab selection/closing action
+        if (pickModeTimeoutId) {
+            clearTimeout(pickModeTimeoutId);
+            pickModeTimeoutId = null;
+        }
         console.log(`[onMessage - key] Letter key pressed: ${key}. Shift: ${shiftKey}. User is performing an action.`);
         if (tabMoveTimeoutId) {
             clearTimeout(tabMoveTimeoutId);
@@ -473,6 +466,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             });
         }
     } else if (type === 'cancel_pick_mode') {
+        if (pickModeTimeoutId) {
+            clearTimeout(pickModeTimeoutId);
+            pickModeTimeoutId = null;
+        }
         console.log(`[onMessage - cancel_pick_mode] Received cancellation request.`);
         if (tabMoveTimeoutId) {
             clearTimeout(tabMoveTimeoutId);
@@ -483,25 +480,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         console.log(`[onMessage - cancel_pick_mode] Reset pendingMoveInfo: ${JSON.stringify(pendingMoveInfo)}`);
 
         revertAllTabTitlesAndCleanUp();
-
-        // Optionally, broadcast to content scripts just in case, though Escape should handle its own instance.
-        // chrome.tabs.query({ currentWindow: true }, (tabs) => {
-        //     tabs.forEach(tab => {
-        //         chrome.tabs.sendMessage(tab.id, { type: 'cancelPickModeGlobally' }).catch(e => console.log(`Error sending cancelPickModeGlobally to tab ${tab.id}: ${e}`));
-        //     });
-        // });
-    } else if (type === 'pick_mode_timeout') {
-        console.log(`[onMessage - pick_mode_timeout] Received pick_mode_timeout from content script for tab ${sender.tab ? sender.tab.id : 'unknown'}.`);
-        if (tabMoveTimeoutId) {
-            clearTimeout(tabMoveTimeoutId);
-            console.log(`[onMessage - pick_mode_timeout] Cleared active timer ${tabMoveTimeoutId}.`);
-            tabMoveTimeoutId = null;
-        }
-        pendingMoveInfo = { tabId: null, initialDuration: reorderDelay, startTime: 0, timePaused: 0 };
-        console.log(`[onMessage - pick_mode_timeout] Reset pendingMoveInfo: ${JSON.stringify(pendingMoveInfo)}`);
-
-        revertAllTabTitlesAndCleanUp();
-        console.log('[onMessage - pick_mode_timeout] Timer cleared, pendingInfo reset, and titles reverted due to pick_mode_timeout.');
     }
 });
 
@@ -509,30 +487,36 @@ function revertAllTabTitlesAndCleanUp() {
     console.log('[revertAllTabTitlesAndCleanUp] Starting process to revert titles for all tabs.');
     chrome.tabs.query({ currentWindow: true }, (tabs) => {
         if (!tabs || tabs.length === 0) {
-            console.log('[revertAllTabTitlesAndCleanUp] No tabs found in current window.');
             return;
         }
         tabs.forEach((tab) => {
-            // Do not attempt to revert titles on restricted pages.
             if (isUrlRestricted(tab.url)) {
-                console.log(`[revertAllTabTitlesAndCleanUp] Skipping title reversion for restricted URL: ${tab.url}`);
                 return;
             }
-            // console.log(`[revertAllTabTitlesAndCleanUp] Attempting to revert title for tab ${tab.id}`);
+
+            const isPinned = pinnedTabs.includes(tab.id);
             chrome.scripting.executeScript({
-                target: { tabId: tab.id, allFrames: true }, // allFrames might be important if titles were set in iframes too
-                func: function() {
+                target: { tabId: tab.id, allFrames: true },
+                args: [isPinned],
+                func: (isPinned) => {
                     if (typeof document.oldTitle !== 'undefined') {
-                        // console.log(`[ContentScript Revert] Reverting title for ${document.location.href} to "${document.oldTitle}"`);
-                        document.title = document.oldTitle;
+                        let newTitle = document.oldTitle;
+                        const pinMarker = "📌 ";
+
+                        if (newTitle.startsWith(pinMarker)) {
+                            newTitle = newTitle.substring(pinMarker.length);
+                        }
+
+                        if (isPinned) {
+                            document.title = pinMarker + newTitle;
+                        } else {
+                            document.title = newTitle;
+                        }
                         delete document.oldTitle;
-                    } else {
-                        // console.log(`[ContentScript Revert] No oldTitle found for ${document.location.href}`);
                     }
                 }
             }).catch(err => console.warn(`[revertAllTabTitlesAndCleanUp] Error reverting title for tab ${tab.id}: ${err}`));
         });
-        console.log('[revertAllTabTitlesAndCleanUp] Finished attempting to revert titles.');
     });
 }
 
