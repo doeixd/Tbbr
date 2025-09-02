@@ -21,13 +21,21 @@ Finally, and this is the important part, navigate to [chrome://extensions/shortc
 
 Tbbr does a few things.
 
-First, it will automatically order your tabs according to when they were last active. After you land on a tab and wait 5 seconds, it gets moved to the first position. This helps keep your current context from getting buried.
+### Automatic Tab Reordering
 
-Second, there's a tab selection mode that lets you switch to any open tab with a couple of keystrokes.
-1.  Activate it with the keyboard shortcut you defined.
+By default, after you land on a tab and wait 5 seconds, it gets moved to the first position. This helps keep your current context from getting buried.
+
+This delay is configurable. You can change it by right-clicking the extension icon and selecting "Options", or by navigating to the extension's details page and clicking "Extension options".
+
+### Pick Mode (Tab Switching & Closing)
+
+There's a tab selection mode that lets you switch to, or close, any open tab with a couple of keystrokes.
+1.  Activate it with the keyboard shortcut you defined for the "pick" command.
 2.  The title of each tab will get a letter prepended to it.
-3.  Press the letter corresponding to the tab you want to go to.
-You can cancel out by hitting `Escape`.
+3.  To switch to a tab, press the letter corresponding to that tab.
+4.  To **close** a tab, press **Shift + letter** for that tab.
+
+You can cancel out of Pick Mode by hitting `Escape`.
 
 Finally, you can set direct shortcuts to focus your first four tabs. The suggested keybindings are vim-style:
 
