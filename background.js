@@ -211,8 +211,8 @@ chrome.commands.onCommand.addListener((command) => {
 
                 if (e.key === 'Escape') {
                     chrome.runtime.sendMessage({ type: 'cancel_pick_mode' });
-                } else if (listOfLetters.includes(e.key)) {
-                    chrome.runtime.sendMessage({ key: e.key, shiftKey: e.shiftKey });
+                } else if (listOfLetters.includes(e.key.toLowerCase())) {
+                    chrome.runtime.sendMessage({ key: e.key.toLowerCase(), shiftKey: e.shiftKey });
                 }
                 // After a key is pressed, remove the listener.
                 window.removeEventListener('keydown', handleKeyDown, true);
