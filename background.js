@@ -419,6 +419,7 @@ chrome.commands.onCommand.addListener((command) => {
       );
     });
   });
+  }
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
