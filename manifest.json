@@ -111,6 +111,18 @@
     "reopen-last-closed-tab": {
         "description": "Reopen the last closed tab",
         "global": true
+    },
+    "close-all-preceding-tabs": {
+      "description": "Close all tabs to the left of the current tab",
+      "global": true
+    },
+    "close-all-following-tabs": {
+      "description": "Close all tabs to the right of the current tab",
+      "global": true
+    },
+    "close-all-except-current": {
+      "description": "Close all tabs except the current one",
+      "global": true
     }
   }
 }

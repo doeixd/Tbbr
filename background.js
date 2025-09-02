@@ -10,6 +10,7 @@ let reorderDelay = 5000;
 let autoCloseEnabled = false;
 let autoCloseTime = 60; // In minutes
 let cycleTimeout = 3000;
+let skipPinnedOnCloseAll = true;
 
 // State variables
 let tabLastActivated = {};
@@ -49,17 +50,67 @@ function loadSettings() {
         delay: 5,
         autoCloseEnabled: false,
         autoCloseTime: 60,
-        cycleTimeout: 3
+        cycleTimeout: 3,
+        skipPinned: true
     }, (items) => {
         reorderDelay = items.delay * 1000;
         autoCloseEnabled = items.autoCloseEnabled;
         autoCloseTime = items.autoCloseTime;
         cycleTimeout = items.cycleTimeout * 1000;
+        skipPinnedOnCloseAll = items.skipPinned;
 
         if (autoCloseEnabled) {
             chrome.alarms.create('autoCloseAlarm', { periodInMinutes: 1 });
         }
     });
+}
+
+async function closeAllPrecedingTabs() {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!activeTab) return;
+
+    const allTabs = await chrome.tabs.query({ currentWindow: true });
+    let tabsToClose = allTabs.filter(tab => tab.index < activeTab.index);
+
+    if (skipPinnedOnCloseAll) {
+        tabsToClose = tabsToClose.filter(tab => !isTabPinned(tab));
+    }
+
+    if (tabsToClose.length > 0) {
+        chrome.tabs.remove(tabsToClose.map(tab => tab.id));
+    }
+}
+
+async function closeAllFollowingTabs() {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!activeTab) return;
+
+    const allTabs = await chrome.tabs.query({ currentWindow: true });
+    let tabsToClose = allTabs.filter(tab => tab.index > activeTab.index);
+
+    if (skipPinnedOnCloseAll) {
+        tabsToClose = tabsToClose.filter(tab => !isTabPinned(tab));
+    }
+
+    if (tabsToClose.length > 0) {
+        chrome.tabs.remove(tabsToClose.map(tab => tab.id));
+    }
+}
+
+async function closeAllExceptCurrent() {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!activeTab) return;
+
+    const allTabs = await chrome.tabs.query({ currentWindow: true });
+    let tabsToClose = allTabs.filter(tab => tab.id !== activeTab.id);
+
+    if (skipPinnedOnCloseAll) {
+        tabsToClose = tabsToClose.filter(tab => !isTabPinned(tab));
+    }
+
+    if (tabsToClose.length > 0) {
+        chrome.tabs.remove(tabsToClose.map(tab => tab.id));
+    }
 }
 
 function loadPersistentState() {
@@ -117,6 +168,9 @@ function handleStorageChange(changes, namespace) {
     }
     if (changes.cycleTimeout) {
         cycleTimeout = changes.cycleTimeout.newValue * 1000;
+    }
+    if (changes.skipPinned) {
+        skipPinnedOnCloseAll = changes.skipPinned.newValue;
     }
 }
 
@@ -201,6 +255,15 @@ function handleCommand(command) {
             break;
         case 'reopen-last-closed-tab':
             reopenLastClosedTab();
+            break;
+        case 'close-all-preceding-tabs':
+            closeAllPrecedingTabs();
+            break;
+        case 'close-all-following-tabs':
+            closeAllFollowingTabs();
+            break;
+        case 'close-all-except-current':
+            closeAllExceptCurrent();
             break;
         default:
             if (command.startsWith('focus-tab-')) {
