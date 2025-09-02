@@ -22,7 +22,7 @@ let cycleState = {
     originalTabId: null,
     currentIndex: 0
 };
-const CYCLE_TIMEOUT_MS = 3000; // 3 seconds
+let cycleTimeout = 3000; // Default value in ms
 
 // Function to load user settings and listen for changes.
 function initializeSettings() {
@@ -30,14 +30,17 @@ function initializeSettings() {
     chrome.storage.sync.get({
         delay: 5,
         autoCloseEnabled: false,
-        autoCloseTime: 60
+        autoCloseTime: 60,
+        cycleTimeout: 3
     }, (items) => {
         reorderDelay = items.delay * 1000;
         autoCloseEnabled = items.autoCloseEnabled;
         autoCloseTime = items.autoCloseTime;
+        cycleTimeout = items.cycleTimeout * 1000;
         console.log(`[Settings] Initial auto-reorder delay set to ${reorderDelay}ms.`);
         console.log(`[Settings] Auto-close enabled: ${autoCloseEnabled}.`);
         console.log(`[Settings] Auto-close time: ${autoCloseTime} minute(s).`);
+        console.log(`[Settings] Cycle-through-tabs timeout set to ${cycleTimeout}ms.`);
     });
 
     // Listen for changes to settings.
@@ -61,6 +64,10 @@ function initializeSettings() {
                 autoCloseTime = changes.autoCloseTime.newValue;
                 console.log(`[Settings] Auto-close time updated to ${autoCloseTime} minute(s).`);
             }
+            if (changes.cycleTimeout) {
+                cycleTimeout = changes.cycleTimeout.newValue * 1000;
+                console.log(`[Settings] Cycle-through-tabs timeout updated to ${cycleTimeout}ms.`);
+            }
         }
     });
 }
@@ -68,7 +75,7 @@ function initializeSettings() {
 initializeSettings();
 
 
-let isMouseInsidePage = true;
+let isMouseInsidePage = false; // Start with false, assuming mouse is outside.
 let tabMoveTimeoutId = null;
 let pickModeTimeoutId = null;
 let isClosePickMode = false;
@@ -292,7 +299,7 @@ chrome.commands.onCommand.addListener((command) => {
                   cycleState.currentIndex = (cycleState.currentIndex + 1) % tabHistory.length;
                 }
                 chrome.tabs.update(tabHistory[cycleState.currentIndex], { active: true });
-                cycleState.timeoutId = setTimeout(endCycle, CYCLE_TIMEOUT_MS);
+                cycleState.timeoutId = setTimeout(endCycle, cycleTimeout);
             }
         });
     } else {
@@ -304,7 +311,7 @@ chrome.commands.onCommand.addListener((command) => {
             cycleState.currentIndex = (cycleState.currentIndex + 1) % tabHistory.length;
         }
         chrome.tabs.update(tabHistory[cycleState.currentIndex], { active: true });
-        cycleState.timeoutId = setTimeout(endCycle, CYCLE_TIMEOUT_MS);
+        cycleState.timeoutId = setTimeout(endCycle, cycleTimeout);
     }
     return;
   }
