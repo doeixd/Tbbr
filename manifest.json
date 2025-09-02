@@ -90,6 +90,22 @@
     "close-pick": {
       "description": "Select a tab to close by letter",
       "global": true
+    },
+    "go-to-following-tab": {
+        "description": "Go to the tab to the right of the current one",
+        "global": true
+    },
+    "go-to-preceeding-tab": {
+        "description": "Go to the tab to the left of the current one",
+        "global": true
+    },
+    "go-to-first-tab": {
+        "description": "Go to the first tab in the tab list",
+        "global": true
+    },
+    "go-to-last-tab-in-list": {
+        "description": "Go to the last tab in the tab list",
+        "global": true
     }
   }
 }

@@ -79,6 +79,19 @@ function attachEventListeners() {
     chrome.commands.onCommand.addListener(handleCommand);
     chrome.runtime.onMessage.addListener(handleMessage);
     chrome.alarms.onAlarm.addListener(handleAlarm);
+
+    // Listen for long-lived connections from content scripts
+    chrome.runtime.onConnect.addListener((port) => {
+        if (port.name === "mouse-tracker") {
+            port.onMessage.addListener((message) => {
+                if (message.type === "mouse_enter") {
+                    handleMouseEnter();
+                } else if (message.type === "mouse_leave") {
+                    handleMouseLeave();
+                }
+            });
+        }
+    });
 }
 
 // =================================================================================================
@@ -174,6 +187,18 @@ function handleCommand(command) {
         case 'close-pick':
             startPickMode(command === 'close-pick');
             break;
+        case 'go-to-following-tab':
+            goToFollowingTab();
+            break;
+        case 'go-to-preceeding-tab':
+            goToPreceedingTab();
+            break;
+        case 'go-to-first-tab':
+            goToFirstTab();
+            break;
+        case 'go-to-last-tab-in-list':
+            goToLastTabInList();
+            break;
         default:
             if (command.startsWith('focus-tab-')) {
                 focusTabByIndex(command);
@@ -184,11 +209,7 @@ function handleCommand(command) {
 function handleMessage(message, sender, sendResponse) {
     const { key, type, shiftKey } = message;
 
-    if (type === 'mouse_leave') {
-        handleMouseLeave();
-    } else if (type === 'mouse_enter') {
-        handleMouseEnter();
-    } else if (key && listOfLetters.includes(key)) {
+    if (key && listOfLetters.includes(key)) {
         handlePickModeKeyPress(key, shiftKey);
     } else if (type === 'cancel_pick_mode') {
         endPickMode();
@@ -490,6 +511,56 @@ const robustListener = function(listOfLetters) {
 // =================================================================================================
 // Other Commands & Utility Functions
 // =================================================================================================
+
+function goToFollowingTab() {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs.length > 0) {
+            const currentTab = tabs[0];
+            chrome.tabs.query({ currentWindow: true }, (allTabs) => {
+                const nextTabIndex = (currentTab.index + 1) % allTabs.length;
+                const nextTab = allTabs.find(tab => tab.index === nextTabIndex);
+                if (nextTab) {
+                    chrome.tabs.update(nextTab.id, { active: true });
+                }
+            });
+        }
+    });
+}
+
+function goToPreceedingTab() {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs.length > 0) {
+            const currentTab = tabs[0];
+            chrome.tabs.query({ currentWindow: true }, (allTabs) => {
+                const prevTabIndex = (currentTab.index - 1 + allTabs.length) % allTabs.length;
+                const prevTab = allTabs.find(tab => tab.index === prevTabIndex);
+                if (prevTab) {
+                    chrome.tabs.update(prevTab.id, { active: true });
+                }
+            });
+        }
+    });
+}
+
+function goToFirstTab() {
+    chrome.tabs.query({ index: 0, currentWindow: true }, (tabs) => {
+        if (tabs.length > 0) {
+            chrome.tabs.update(tabs[0].id, { active: true });
+        }
+    });
+}
+
+function goToLastTabInList() {
+    chrome.tabs.query({ currentWindow: true }, (tabs) => {
+        if (tabs.length > 0) {
+            const lastTabIndex = Math.max(...tabs.map(t => t.index));
+            const lastTab = tabs.find(t => t.index === lastTabIndex);
+            if (lastTab) {
+                chrome.tabs.update(lastTab.id, { active: true });
+            }
+        }
+    });
+}
 
 function goToLastTab() {
     if (tabHistory.length > 1) {
