@@ -24,8 +24,21 @@
     <div class="option">
         <label for="delay">Auto-reorder delay (in seconds):</label>
         <input type="number" id="delay" min="0">
-        <span id="status"></span>
     </div>
+
+    <div class="option">
+        <label>
+            <input type="checkbox" id="autoCloseEnabled">
+            Automatically close tabs that haven't been opened in a while
+        </label>
+    </div>
+
+    <div class="option">
+        <label for="autoCloseTime">Auto-close time (in hours):</label>
+        <input type="number" id="autoCloseTime" min="1" value="1">
+    </div>
+
+    <div id="status"></div>
 
     <script src="options.js"></script>
 </body>

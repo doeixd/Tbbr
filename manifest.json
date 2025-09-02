@@ -23,7 +23,8 @@
     "activeTab",
     "scripting",
     "commands",
-    "storage"
+    "storage",
+    "alarms"
   ],
   "host_permissions": [
     "*://*/*",
@@ -89,6 +90,10 @@
     },
     "toggle-pin": {
       "description": "Toggle pin state of the current tab",
+      "global": true
+    },
+    "close-all-old-tabs": {
+      "description": "Close all tabs that haven't been opened after a configurable time",
       "global": true
     }
   }
