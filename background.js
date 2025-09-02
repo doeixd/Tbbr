@@ -124,6 +124,111 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
     chrome.storage.local.set({ tabLastActivated: tabLastActivated });
 });
 
+// Content script for the active tab (polite method)
+const politeListener = function(listOfLetters) {
+    const ELEMENT_ID = 'tbbr-focus-element';
+
+    const cleanup = () => {
+        if (window.pickModeCleanupHandler) {
+            chrome.runtime.onMessage.removeListener(window.pickModeCleanupHandler);
+            delete window.pickModeCleanupHandler;
+        }
+        const focusElement = document.getElementById(ELEMENT_ID);
+        if (focusElement) {
+            focusElement.remove();
+        }
+    };
+
+    cleanup(); // Run first
+
+    const focusElement = document.createElement('input');
+    focusElement.id = ELEMENT_ID;
+    focusElement.style.cssText = `position:fixed;opacity:0;top:0;left:0;width:0;height:0;padding:0;border:0;`;
+    document.body.appendChild(focusElement);
+    focusElement.focus();
+
+    const keyDownHandler = (e) => {
+        e.stopImmediatePropagation();
+        if (e.key === 'Escape') {
+            chrome.runtime.sendMessage({ type: 'cancel_pick_mode' });
+            cleanup();
+        } else if (listOfLetters.includes(e.key.toLowerCase())) {
+            chrome.runtime.sendMessage({ key: e.key.toLowerCase(), shiftKey: e.shiftKey });
+            cleanup();
+        }
+    };
+    focusElement.addEventListener('keydown', keyDownHandler);
+
+    window.pickModeCleanupHandler = (message) => {
+        if (message && message.type === 'cleanup_pick_mode') {
+            cleanup();
+        }
+    };
+    chrome.runtime.onMessage.addListener(window.pickModeCleanupHandler);
+};
+
+// Content script for inactive tabs (robust method)
+const robustListener = function(listOfLetters) {
+    const cleanup = () => {
+        if (window.pickModeKeyDownHandler) {
+            window.removeEventListener('keydown', window.pickModeKeyDownHandler, true);
+            delete window.pickModeKeyDownHandler;
+        }
+        if (window.pickModeCleanupHandler) {
+            chrome.runtime.onMessage.removeListener(window.pickModeCleanupHandler);
+            delete window.pickModeCleanupHandler;
+        }
+    };
+
+    cleanup(); // Run first
+
+    window.pickModeKeyDownHandler = (e) => {
+        if (document.hidden) return;
+
+        e.stopImmediatePropagation();
+        e.preventDefault();
+
+        if (e.key === 'Escape') {
+            chrome.runtime.sendMessage({ type: 'cancel_pick_mode' });
+            cleanup();
+        } else if (listOfLetters.includes(e.key.toLowerCase())) {
+            chrome.runtime.sendMessage({ key: e.key.toLowerCase(), shiftKey: e.shiftKey });
+            cleanup();
+        }
+    };
+
+    window.pickModeCleanupHandler = (message) => {
+        if (message && message.type === 'cleanup_pick_mode') {
+            cleanup();
+        }
+    };
+
+    window.addEventListener('keydown', window.pickModeKeyDownHandler, true);
+    chrome.runtime.onMessage.addListener(window.pickModeCleanupHandler);
+};
+
+
+function endPickMode() {
+    console.log('[endPickMode] Ending pick mode.');
+    // 1. Clear the global timeout
+    if (pickModeTimeoutId) {
+        clearTimeout(pickModeTimeoutId);
+        pickModeTimeoutId = null;
+    }
+
+    // 2. Broadcast cleanup message to all tabs
+    chrome.tabs.query({ currentWindow: true }, (tabs) => {
+        if (!tabs || tabs.length === 0) return;
+        tabs.forEach((tab) => {
+            chrome.tabs.sendMessage(tab.id, { type: 'cleanup_pick_mode' })
+                .catch(err => {}); // Suppress "no receiving end" errors, which are expected.
+        });
+    });
+
+    // 3. Revert all the titles
+    revertAllTabTitlesAndCleanUp();
+}
+
 chrome.commands.onCommand.addListener((command) => {
   if (command === 'toggle-pin') {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -172,7 +277,7 @@ chrome.commands.onCommand.addListener((command) => {
     return;
   }
   if (command === 'clear-pick-mode') {
-    revertAllTabTitlesAndCleanUp();
+    endPickMode();
     return;
   }
 
@@ -181,11 +286,7 @@ chrome.commands.onCommand.addListener((command) => {
   if (pickModeTimeoutId) {
     clearTimeout(pickModeTimeoutId);
   }
-  pickModeTimeoutId = setTimeout(() => {
-    console.log('[background.js] Pick mode timed out. Reverting titles.');
-    revertAllTabTitlesAndCleanUp();
-    pickModeTimeoutId = null;
-  }, 5000);
+  pickModeTimeoutId = setTimeout(endPickMode, 5000);
 
   chrome.tabs.query({ currentWindow: true }, (tabList) => {
     if (!tabList.length) return;
@@ -196,54 +297,30 @@ chrome.commands.onCommand.addListener((command) => {
         return; // This acts as 'continue' in a forEach loop.
       }
 
-      // Inject key listener into all tabs.
+      // ** HYBRID INJECTION LOGIC **
+      const listenerToInject = tab.active ? politeListener : robustListener;
+      const injectionType = tab.active ? "polite" : "robust";
+      console.log(`[onCommand pick] Injecting ${injectionType} listener into tab ${tab.id}`);
+
       chrome.scripting.executeScript({
           target: { tabId: tab.id },
           args: [listOfLetters],
-          func: function(listOfLetters) {
-            const handleKeyDown = (e) => {
-                if (document.hidden) {
-                    return;
-                }
-
-                e.stopImmediatePropagation();
-                e.preventDefault();
-
-                if (e.key === 'Escape') {
-                    chrome.runtime.sendMessage({ type: 'cancel_pick_mode' });
-                } else if (listOfLetters.includes(e.key.toLowerCase())) {
-                    chrome.runtime.sendMessage({ key: e.key.toLowerCase(), shiftKey: e.shiftKey });
-                }
-                // After a key is pressed, remove the listener.
-                window.removeEventListener('keydown', handleKeyDown, true);
-            };
-
-            // Remove any old listeners before adding a new one, just in case.
-            window.removeEventListener('keydown', handleKeyDown, true);
-            window.addEventListener('keydown', handleKeyDown, true);
-          }
-      });
+          func: listenerToInject
+      }).catch(err => console.warn(`[onCommand pick] Could not inject listener into tab ${tab.id}: ${err.message}`));
 
       const title = listOfLetters[tab.index] ?? tab.index.toString();
-      // console.log(`[onCommand] Preparing to set title for tab ${tab.id} (index ${tab.index}) to "${title}"`);
       chrome.scripting.executeScript(
         {
           func: function(titleStr) {
-            // console.log(`[ContentScript Title] Setting title: ${titleStr}. Current title: ${document.title}`);
             if (typeof document.oldTitle === 'undefined' || !document.title.startsWith(titleStr + ':')) {
                  document.oldTitle = document.title;
-                 // console.log(`[ContentScript Title] Stored old title: ${document.oldTitle}`);
             }
             document.title = titleStr + ': ' + document.oldTitle;
-            // console.log(`[ContentScript Title] New title set: ${document.title}`);
-
-            // The 3-second timeout to revert the title is removed from here.
-            // Title reversion will now be handled by background.js upon tab selection, cancellation, or timeout.
           },
           args: [title],
           target: {
             tabId: tab.id,
-            allFrames: true, // Consider if allFrames is truly needed here or if it causes issues
+            allFrames: true,
           }
         }
       );
@@ -424,23 +501,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         } else {
             console.log(`[mouse_enter] No pending tab with remaining duration to resume, or initialDuration is 0. pendingMoveInfo: ${JSON.stringify(pendingMoveInfo)}`);
         }
-    // Removed the 'picked' message type handler as it's no longer used by the content script.
-    // The functionality (clearing timer, resetting info, reverting titles) is now handled by
-    // the 'cancel_pick_mode' message or as part of the letter key selection flow.
-    } else if (key && listOfLetters.includes(key)) { // This is a tab selection/closing action
-        if (pickModeTimeoutId) {
-            clearTimeout(pickModeTimeoutId);
-            pickModeTimeoutId = null;
-        }
-        console.log(`[onMessage - key] Letter key pressed: ${key}. Shift: ${shiftKey}. User is performing an action.`);
+    // The rest of the logic handles pick mode actions.
+    } else if (key && listOfLetters.includes(key)) { // A letter was pressed for tab selection/closing
+        console.log(`[onMessage - key] Letter key pressed: ${key}. Shift: ${shiftKey}.`);
+
+        // Also clear the auto-move timer, as user is taking explicit action.
         if (tabMoveTimeoutId) {
             clearTimeout(tabMoveTimeoutId);
-            console.log(`[onMessage - key] Cleared active timer ${tabMoveTimeoutId} due to user action.`);
             tabMoveTimeoutId = null;
         }
-        // Reset pendingMoveInfo as user interaction overrides auto-move.
         pendingMoveInfo = { tabId: null, initialDuration: reorderDelay, startTime: 0, timePaused: 0 };
-        console.log(`[onMessage - key] Reset pendingMoveInfo: ${JSON.stringify(pendingMoveInfo)}`);
 
         const tabIndex = listOfLetters.indexOf(key);
         if (tabIndex > -1) {
@@ -448,38 +518,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 if (tabs && tabs.length > 0) {
                     const targetTabId = tabs[0].id;
                     if (shiftKey) {
-                        // Close the tab
-                        console.log(`[onMessage - key] Closing tab ${targetTabId} at index ${tabIndex} for key Shift+${key}.`);
+                        console.log(`[onMessage - key] Closing tab ${targetTabId} at index ${tabIndex}`);
                         chrome.tabs.remove(targetTabId);
-                        // We still revert titles because the pick mode is now over.
-                        revertAllTabTitlesAndCleanUp();
                     } else {
-                        // Switch to the tab
-                        console.log(`[onMessage - key] Activating tab ${targetTabId} at index ${tabIndex} for key ${key}.`);
+                        console.log(`[onMessage - key] Activating tab ${targetTabId} at index ${tabIndex}`);
                         chrome.tabs.update(targetTabId, { active: true, highlighted: true });
-                        // After successful activation, ensure all titles are reverted.
-                        revertAllTabTitlesAndCleanUp();
                     }
                 } else {
-                    console.log(`[onMessage - key] No tab found at index ${tabIndex} for key ${key}.`);
+                    console.log(`[onMessage - key] No tab found at index ${tabIndex}.`);
                 }
             });
         }
+        // In all cases of a key press, end the pick mode.
+        endPickMode();
+
     } else if (type === 'cancel_pick_mode') {
-        if (pickModeTimeoutId) {
-            clearTimeout(pickModeTimeoutId);
-            pickModeTimeoutId = null;
-        }
         console.log(`[onMessage - cancel_pick_mode] Received cancellation request.`);
+        // Also clear the auto-move timer.
         if (tabMoveTimeoutId) {
             clearTimeout(tabMoveTimeoutId);
-            console.log(`[onMessage - cancel_pick_mode] Cleared active timer ${tabMoveTimeoutId}.`);
             tabMoveTimeoutId = null;
         }
         pendingMoveInfo = { tabId: null, initialDuration: reorderDelay, startTime: 0, timePaused: 0 };
-        console.log(`[onMessage - cancel_pick_mode] Reset pendingMoveInfo: ${JSON.stringify(pendingMoveInfo)}`);
-
-        revertAllTabTitlesAndCleanUp();
+        endPickMode();
     }
 });
 
