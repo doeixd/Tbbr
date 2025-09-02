@@ -6,16 +6,28 @@ I hacked this together and don't recommend you using this.
 
 ## Installation
 
+### Linux/macOS
+
 First, download the files.
 ```sh
 npx degit doeixd/Tbbr ~/.local/share/Tbbr
 ```
 
-Then go to [chrome://extensions](chrome://extensions), and turn on developer mode.
+### Windows
 
-After that, click *Load unpacked* and navigate to/select the `~/.local/share/Tbbr` directory.
+First, download the files. You can use this command in your terminal:
+```sh
+npx degit doeixd/Tbbr %LOCALAPPDATA%/Tbbr
+```
+This will download the extension to a folder named `Tbbr` inside your local AppData directory.
 
-Finally, and this is the important part, navigate to [chrome://extensions/shortcuts](chrome://extensions/shortcuts). You'll need to set your own keyboard shortcuts for the extension's commands to make them do anything.
+### Loading the extension
+
+Then go to <chrome://extensions>, and turn on developer mode.
+
+After that, click *Load unpacked* and navigate to/select the directory where you downloaded the files (e.g., `~/.local/share/Tbbr` on Linux or `%LOCALAPPDATA%\Tbbr` on Windows).
+
+Finally, and this is the important part, navigate to <chrome://extensions/shortcuts>. You'll need to set your own keyboard shortcuts for the extension's commands to make them do anything.
 
 ## Usage
 
@@ -44,7 +56,7 @@ Finally, you can set direct shortcuts to focus your first four tabs. The suggest
 *   **Focus the third tab** :&nbsp;&nbsp;&nbsp;&nbsp;`Alt+L`
 *   **Focus the fourth tab**:&nbsp;&nbsp;`Alt+;`
 
-You have to set these yourself at [chrome://extensions/shortcuts](chrome://extensions/shortcuts).
+You have to set these yourself at <chrome://extensions/shortcuts>.
 
 ### Move Tab to First Position
 
@@ -56,7 +68,7 @@ You can move the current tab to the first position using a keyboard shortcut.
 
 To prevent a tab from being automatically reordered, you can "pin" it. Pinned tabs will stay where they are. This is useful for tabs you always want to keep in a specific place, like your email or a music player.
 
-To pin or unpin a tab, you first need to set a keyboard shortcut for the "toggle-pin" command at [chrome://extensions/shortcuts](chrome://extensions/shortcuts). Once you've set a shortcut, you can use it to toggle the pinned state of the current tab.
+To pin or unpin a tab, you first need to set a keyboard shortcut for the "toggle-pin" command at <chrome://extensions/shortcuts>. Once you've set a shortcut, you can use it to toggle the pinned state of the current tab.
 
 When a tab is pinned, you'll see a "📌" icon at the beginning of its title.
 
@@ -68,4 +80,4 @@ To enable it, go to the extension's options page. You can set the time in hours 
 
 ### Close All Old Tabs
 
-You can manually trigger the closing of old tabs by using a keyboard shortcut. You'll need to set a shortcut for the "close-all-old-tabs" command at [chrome://extensions/shortcuts](chrome://extensions/shortcuts). This will close all tabs that haven't been opened after the configurable time.
+You can manually trigger the closing of old tabs by using a keyboard shortcut. You'll need to set a shortcut for the "close-all-old-tabs" command at <chrome://extensions/shortcuts>. This will close all tabs that haven't been opened after the configurable time.
