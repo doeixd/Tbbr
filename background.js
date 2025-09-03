@@ -10,6 +10,8 @@ let autoCloseEnabled = false;
 let autoCloseTime = 60; // In minutes
 let cycleTimeout = 3000;
 let skipPinnedOnCloseAll = true;
+let warningTime = 5; // In minutes
+let isActiveDelay = 0; // In milliseconds
 
 // State variables
 let tabLastActivated = {};
@@ -17,6 +19,7 @@ let tabHistory = [];
 let pinnedTabs = [];
 let isMouseInsidePage = false;
 let tabMoveTimeoutId = null;
+let isActiveTimeoutId = null;
 let pickModeTimeoutId = null;
 let isClosePickMode = false;
 let areTimersVisible = false;
@@ -52,13 +55,17 @@ function loadSettings() {
         autoCloseEnabled: false,
         autoCloseTime: 60,
         cycleTimeout: 3,
-        skipPinned: true
+        skipPinned: true,
+        warningTime: 5,
+        isActiveDelay: 0
     }, (items) => {
         reorderDelay = items.delay * 1000;
         autoCloseEnabled = items.autoCloseEnabled;
         autoCloseTime = items.autoCloseTime;
         cycleTimeout = items.cycleTimeout * 1000;
         skipPinnedOnCloseAll = items.skipPinned;
+        warningTime = items.warningTime;
+        isActiveDelay = items.isActiveDelay * 1000; // Convert to ms
 
         if (autoCloseEnabled) {
             chrome.alarms.create('autoCloseAlarm', { periodInMinutes: 1 });
@@ -177,6 +184,12 @@ function handleStorageChange(changes, namespace) {
     if (changes.skipPinned) {
         skipPinnedOnCloseAll = changes.skipPinned.newValue;
     }
+    if (changes.warningTime) {
+        warningTime = changes.warningTime.newValue;
+    }
+    if (changes.isActiveDelay) {
+        isActiveDelay = changes.isActiveDelay.newValue * 1000;
+    }
 }
 
 function handleTabCreated(tab) {
@@ -199,9 +212,9 @@ function handleTabUpdated(tabId, changeInfo, tab) {
     }
 }
 
-function handleTabActivated(activeInfo) {
-    updateTabActivationTime(activeInfo.tabId);
-    updateTabHistory(activeInfo.tabId);
+function finalizeTabActivation(tabId) {
+    updateTabActivationTime(tabId);
+    updateTabHistory(tabId);
 
     if (tabMoveTimeoutId) {
         clearTimeout(tabMoveTimeoutId);
@@ -209,16 +222,34 @@ function handleTabActivated(activeInfo) {
     }
 
     pendingMoveInfo = {
-        tabId: activeInfo.tabId,
+        tabId: tabId,
         initialDuration: reorderDelay,
         startTime: 0,
         timePaused: 0
     };
 
     if (isMouseInsidePage) {
-        startMoveTimer(activeInfo.tabId, pendingMoveInfo.initialDuration);
+        startMoveTimer(tabId, pendingMoveInfo.initialDuration);
     } else {
         pendingMoveInfo.timePaused = Date.now();
+    }
+}
+
+function handleTabActivated(activeInfo) {
+    // Clear any previously pending activation timer
+    if (isActiveTimeoutId) {
+        clearTimeout(isActiveTimeoutId);
+        isActiveTimeoutId = null;
+    }
+
+    // If delay is 0, activate immediately. Otherwise, set a timeout.
+    if (isActiveDelay === 0) {
+        finalizeTabActivation(activeInfo.tabId);
+    } else {
+        isActiveTimeoutId = setTimeout(() => {
+            finalizeTabActivation(activeInfo.tabId);
+            isActiveTimeoutId = null;
+        }, isActiveDelay);
     }
 }
 
@@ -653,7 +684,7 @@ async function updateAllTabTimers() {
             chrome.scripting.executeScript({
                 target: { tabId: tab.id },
                 func: (isPinned) => {
-                    const timerRegex = /^\[(\d{2}:\d{2}|EXPIRED)\]\s/;
+                    const timerRegex = /^\[(WARN\s)?(\d{2}:\d{2}|EXPIRED)\]\s/;
                     // Only act if a timer is actually present
                     if (document.title.match(timerRegex)) {
                         if (typeof document.oldTitle !== 'undefined') {
@@ -677,20 +708,26 @@ async function updateAllTabTimers() {
             const autoCloseTimeMs = autoCloseTime * 60 * 1000;
             const deadline = lastActivated + autoCloseTimeMs;
             const remainingMs = deadline - now;
-
+            const warningTimeMs = warningTime * 60 * 1000;
             let timeStr;
+
             if (remainingMs <= 0) {
                 timeStr = "[EXPIRED] ";
             } else {
                 const minutes = String(Math.floor(remainingMs / 60000)).padStart(2, '0');
                 const seconds = String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, '0');
-                timeStr = `[${minutes}:${seconds}] `;
+
+                if (warningTimeMs > 0 && remainingMs <= warningTimeMs) {
+                    timeStr = `[WARN ${minutes}:${seconds}] `;
+                } else {
+                    timeStr = `[${minutes}:${seconds}] `;
+                }
             }
 
             chrome.scripting.executeScript({
                 target: { tabId: tab.id },
                 func: (prefix) => {
-                    const timerRegex = /^\[(\d{2}:\d{2}|EXPIRED)\]\s/;
+                    const timerRegex = /^\[(WARN\s)?(\d{2}:\d{2}|EXPIRED)\]\s/;
                     const pinMarker = "📌 ";
 
                     if (typeof document.oldTitle === 'undefined') {
