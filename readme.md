@@ -94,6 +94,8 @@ To prevent a tab from being automatically reordered or closed by bulk actions, y
 
 #### Other Management Commands
 *   **`move-to-first`**: Move current tab to the front. (Suggested: `Alt+g`)
+*   **`move-tab-left`**: Move the current tab one position to the left.
+*   **`move-tab-right`**: Move the current tab one position to the right.
 *   **`reopen-last-closed-tab`**: Restores the most recently closed tab or window.
 *   **`close-all-preceding-tabs`**: Closes all tabs to the left of the current tab.
 *   **`close-all-following-tabs`**: Closes all tabs to the right of the current tab.
