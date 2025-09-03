@@ -222,23 +222,28 @@ function handleTabRemoved(tabId, removeInfo) {
 }
 
 function handleTabUpdated(tabId, changeInfo, tab) {
-    // Synchronize our internal state if a tab is pinned/unpinned via Chrome's native UI.
+    // Check if the native pinned status has changed.
     if (typeof changeInfo.pinned !== 'undefined') {
-        const tabId = tab.id;
-        const isPinned = changeInfo.pinned;
+        const isNativelyPinned = changeInfo.pinned;
         const internalIndex = pinnedTabs.indexOf(tabId);
 
-        if (isPinned && internalIndex === -1) {
-            // Natively pinned, but not in our list. Add it.
-            pinnedTabs.push(tabId);
-        } else if (!isPinned && internalIndex > -1) {
-            // Natively unpinned, but still in our list. Remove it.
+        if (isNativelyPinned && internalIndex > -1) {
+            // RULE #3: The user just natively pinned a tab that was soft-pinned.
+            // Native pinning "upgrades" the pin. We remove our soft-pin to avoid
+            // a conflicting state where the user can't unpin it properly.
             pinnedTabs.splice(internalIndex, 1);
         }
 
-        // Persist the change and update the title to ensure the pin icon is correct.
-        chrome.storage.local.set({ pinnedTabs: pinnedTabs });
-        updateTabTitle(tabId, isPinned);
+        // Persist the change (if any) and update the title to ensure the pin icon is correct.
+        chrome.storage.local.set({ pinnedTabs: pinnedTabs }, () => {
+            // CORRECTION: Always use the single source of truth to update the UI.
+            // We need the full tab object for this check.
+            chrome.tabs.get(tabId, (updatedTab) => {
+                if (updatedTab) {
+                    updateTabTitle(tabId, isTabPinned(updatedTab));
+                }
+            });
+        });
     }
 
     if (changeInfo.status === 'complete') {
@@ -980,10 +985,33 @@ function togglePin() {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs.length > 0) {
             const tab = tabs[0];
-            // Simply toggle the native pinned state. The handleTabUpdated listener
-            // will take care of updating the internal state (pinnedTabs list and title icon),
-            // ensuring a single source of truth.
-            chrome.tabs.update(tab.id, { pinned: !tab.pinned });
+            const tabId = tab.id;
+
+            // Do not allow soft-pinning a tab that is already natively pinned.
+            if (tab.pinned) {
+                console.log("Tbbr: Cannot modify soft-pin on a natively pinned tab.");
+                return;
+            }
+
+            const internalIndex = pinnedTabs.indexOf(tabId);
+            if (internalIndex > -1) {
+                pinnedTabs.splice(internalIndex, 1); // Un-soft-pin
+            } else {
+                pinnedTabs.push(tabId); // Soft-pin
+            }
+
+            // After modifying our internal list, the result of isTabPinned will be the new correct state.
+            const shouldBePinned = isTabPinned(tab);
+
+            // Save the updated list and then update the title icon.
+            chrome.storage.local.set({ pinnedTabs: pinnedTabs }, () => {
+                updateTabTitle(tabId, shouldBePinned);
+            });
+
+            if (tabMoveTimeoutId && pendingMoveInfo.tabId === tabId) {
+                clearTimeout(tabMoveTimeoutId);
+                tabMoveTimeoutId = null;
+            }
         }
     });
 }
@@ -1085,34 +1113,36 @@ function isUrlRestricted(url) {
 
 function isTabPinned(tab) {
     if (!tab) return false;
-    return tab.pinned || pinnedTabs.includes(tab.id) || (tab.title && tab.title.startsWith("📌"));
+    // A tab is considered pinned if it's natively pinned OR in our soft-pin list.
+    return tab.pinned || pinnedTabs.includes(tab.id);
 }
 
-function updateTabTitle(tabId, isPinned) {
+function updateTabTitle(tabId, shouldBePinned) {
     chrome.tabs.get(tabId, (tab) => {
-        if (chrome.runtime.lastError || !tab) {
+        if (chrome.runtime.lastError || !tab || isUrlRestricted(tab.url)) {
             return;
         }
 
-        if (isUrlRestricted(tab.url)) {
-            return;
-        }
+        // CORRECTION: First, ensure the pristine title is known and use it.
+        setOriginalTitle(tabId, tab.title);
+        const originalTitle = tabOriginalTitles.get(tabId);
 
-        let newTitle = tab.title;
         const pinMarker = "📌 ";
+        let newTitle = originalTitle; // Always start from the clean base title.
 
-        if (newTitle.startsWith(pinMarker)) {
-            newTitle = newTitle.substring(pinMarker.length);
+        if (shouldBePinned) {
+            newTitle = pinMarker + originalTitle;
         }
 
-        if (isPinned) {
-            newTitle = pinMarker + newTitle;
-        }
+        // Other features (like timers) will re-apply their own prefixes on their
+        // next update cycle. This function's only job is to manage the pin icon.
 
-        chrome.scripting.executeScript({
-            target: { tabId: tabId },
-            func: (title) => { document.title = title; },
-            args: [newTitle]
-        }).catch(err => {});
+        if (tab.title !== newTitle) {
+            chrome.scripting.executeScript({
+                target: { tabId: tabId },
+                func: (title) => { document.title = title; },
+                args: [newTitle]
+            }).catch(err => {});
+        }
     });
 }

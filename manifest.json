@@ -34,15 +34,6 @@
     "https://*/*",
     "http://*/*"
   ],
-  "externally_connectable": {
-    "matches": [
-      "https://*/*",
-      "http://*/*"
-    ],
-    "ids": [
-      "*"
-    ]
-  },
   "commands": {
         "focus-tab-1": {
       "description": "Focus the first tab",
