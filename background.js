@@ -469,13 +469,22 @@ async function closeOldTabs() {
     const closingPromises = tabs.map(tab => {
         return new Promise(async (resolve) => {
             // Do not close tabs whose domain is on the whitelist.
-            try {
-                const tabUrl = new URL(tab.url);
-                if (autoCloseWhitelist.includes(tabUrl.hostname)) {
-                    return resolve(false);
+            if (tab.url) {
+                if (tab.url.startsWith('http:') || tab.url.startsWith('https:')) {
+                    try {
+                        const tabUrl = new URL(tab.url);
+                        if (autoCloseWhitelist.includes(tabUrl.hostname)) {
+                            return resolve(false);
+                        }
+                    } catch (e) {
+                        // Should not happen, but ignore if it does.
+                    }
+                } else if (tab.url.startsWith('file:')) {
+                    // For file URLs, check the full URL against the whitelist.
+                    if (autoCloseWhitelist.includes(tab.url)) {
+                        return resolve(false);
+                    }
                 }
-            } catch (e) {
-                // Invalid URL, can't get hostname. Ignore.
             }
 
             if (isTabPinned(tab) || tab.audible) {
@@ -971,32 +980,10 @@ function togglePin() {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs.length > 0) {
             const tab = tabs[0];
-            const tabId = tab.id;
-
-            if (tab.pinned) {
-                chrome.tabs.update(tabId, { pinned: false });
-                const index = pinnedTabs.indexOf(tabId);
-                if (index > -1) {
-                    pinnedTabs.splice(index, 1);
-                }
-                updateTabTitle(tabId, false);
-            } else {
-                const index = pinnedTabs.indexOf(tabId);
-                if (index > -1) {
-                    pinnedTabs.splice(index, 1);
-                    updateTabTitle(tabId, false);
-                } else {
-                    pinnedTabs.push(tabId);
-                    updateTabTitle(tabId, true);
-                }
-            }
-
-            chrome.storage.local.set({ pinnedTabs: pinnedTabs });
-
-            if (tabMoveTimeoutId && pendingMoveInfo.tabId === tabId) {
-                clearTimeout(tabMoveTimeoutId);
-                tabMoveTimeoutId = null;
-            }
+            // Simply toggle the native pinned state. The handleTabUpdated listener
+            // will take care of updating the internal state (pinnedTabs list and title icon),
+            // ensuring a single source of truth.
+            chrome.tabs.update(tab.id, { pinned: !tab.pinned });
         }
     });
 }
@@ -1074,7 +1061,8 @@ function setOriginalTitle(tabId, title) {
     if (!tabOriginalTitles.has(tabId)) {
         // Clean the title of any existing prefixes from previous sessions or errors
         // before storing it as the "original".
-        const timerRegex = /^\[(WARN\s)?([\d:]+|EXPIRED)\]\s/;
+        // This regex is now more specific to avoid mangling legitimate titles like [PROJ-123].
+        const timerRegex = /^\[((WARN\s)?\d{1,2}:\d{2}|EXPIRED)\]\s/;
         const pickModeRegex = /^[a-z;,.]:\s/;
         const pinMarker = "📌 ";
         const cleanedTitle = title
