@@ -72,6 +72,7 @@ You can cancel out of Pick Mode by hitting `Escape`.
 #### Recency-based Navigation
 *   **`go-to-last-tab`**: Instantly switch to your previously active tab.
 *   **`cycle-through-tabs`**: This command lets you walk backward through your tab history. When you activate it the first time, it jumps to the last tab you were on. If you activate it again within a few seconds (configurable), it jumps to the tab before that, and so on. This "cycle mode" ends when you stop activating the command, leaving you on the last tab you cycled to.
+*   **`cycle-through-tabs-forward`**: Same as above, but cycles forward through your tab history.
 
 #### Positional Navigation
 *   **`go-to-following-tab`**: Switch to the tab immediately to the right (wraps around).
