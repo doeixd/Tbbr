@@ -12,6 +12,7 @@ let cycleTimeout = 3000;
 let skipPinnedOnCloseAll = true;
 let warningTime = 5; // In minutes
 let isActiveDelay = 0; // In milliseconds
+let autoCloseWhitelist = [];
 
 // State variables
 let tabLastActivated = {};
@@ -37,6 +38,12 @@ let pendingMoveInfo = {
     timePaused: 0
 };
 
+// A map to store the original, pristine title of a tab before any manipulation.
+// This prevents features like Countdown Timers and Pick Mode from corrupting each other's state.
+// Map<tabId, originalTitle>
+let tabOriginalTitles = new Map();
+
+
 // =================================================================================================
 // Initialization
 // =================================================================================================
@@ -57,7 +64,8 @@ function loadSettings() {
         cycleTimeout: 3,
         skipPinned: true,
         warningTime: 5,
-        isActiveDelay: 0
+        isActiveDelay: 0,
+        autoCloseWhitelist: []
     }, (items) => {
         reorderDelay = items.delay * 1000;
         autoCloseEnabled = items.autoCloseEnabled;
@@ -66,6 +74,7 @@ function loadSettings() {
         skipPinnedOnCloseAll = items.skipPinned;
         warningTime = items.warningTime;
         isActiveDelay = items.isActiveDelay * 1000; // Convert to ms
+        autoCloseWhitelist = items.autoCloseWhitelist;
 
         if (autoCloseEnabled) {
             chrome.alarms.create('autoCloseAlarm', { periodInMinutes: 1 });
@@ -190,6 +199,9 @@ function handleStorageChange(changes, namespace) {
     if (changes.isActiveDelay) {
         isActiveDelay = changes.isActiveDelay.newValue * 1000;
     }
+    if (changes.autoCloseWhitelist) {
+        autoCloseWhitelist = changes.autoCloseWhitelist.newValue;
+    }
 }
 
 function handleTabCreated(tab) {
@@ -204,9 +216,31 @@ function handleTabRemoved(tabId, removeInfo) {
     if (index > -1) {
         tabHistory.splice(index, 1);
     }
+
+    // Clean up the original title from our map to prevent memory leaks.
+    tabOriginalTitles.delete(tabId);
 }
 
 function handleTabUpdated(tabId, changeInfo, tab) {
+    // Synchronize our internal state if a tab is pinned/unpinned via Chrome's native UI.
+    if (typeof changeInfo.pinned !== 'undefined') {
+        const tabId = tab.id;
+        const isPinned = changeInfo.pinned;
+        const internalIndex = pinnedTabs.indexOf(tabId);
+
+        if (isPinned && internalIndex === -1) {
+            // Natively pinned, but not in our list. Add it.
+            pinnedTabs.push(tabId);
+        } else if (!isPinned && internalIndex > -1) {
+            // Natively unpinned, but still in our list. Remove it.
+            pinnedTabs.splice(internalIndex, 1);
+        }
+
+        // Persist the change and update the title to ensure the pin icon is correct.
+        chrome.storage.local.set({ pinnedTabs: pinnedTabs });
+        updateTabTitle(tabId, isPinned);
+    }
+
     if (changeInfo.status === 'complete') {
         updateTabActivationTime(tabId);
     }
@@ -428,19 +462,21 @@ async function closeOldTabs() {
         return;
     }
 
-    const tabs = await chrome.tabs.query({});
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabs = await chrome.tabs.query({ currentWindow: true });
     const now = Date.now();
     const autoCloseTimeMs = autoCloseTime * 60 * 1000;
 
     const closingPromises = tabs.map(tab => {
         return new Promise(async (resolve) => {
-            // *** BUG FIX START ***
-            // Do not close the currently active tab, regardless of its age.
-            if (activeTab && tab.id === activeTab.id) {
-                return resolve(false);
+            // Do not close tabs whose domain is on the whitelist.
+            try {
+                const tabUrl = new URL(tab.url);
+                if (autoCloseWhitelist.includes(tabUrl.hostname)) {
+                    return resolve(false);
+                }
+            } catch (e) {
+                // Invalid URL, can't get hostname. Ignore.
             }
-            // *** BUG FIX END ***
 
             if (isTabPinned(tab) || tab.audible) {
                 return resolve(false);
@@ -465,8 +501,13 @@ async function closeOldTabs() {
                     });
 
                     if (response && !response.hasUnsavedChanges) {
-                        await chrome.tabs.remove(tab.id);
-                        return resolve(true);
+                        // Final check: Re-fetch the tab's state to ensure it hasn't become active
+                        // while we were waiting for the content script to respond.
+                        const currentTabState = await chrome.tabs.get(tab.id);
+                        if (!currentTabState.active) {
+                            await chrome.tabs.remove(tab.id);
+                            return resolve(tab); // Resolve with the tab object for the notification
+                        }
                     }
                 } catch (e) {
                     // An error occurred, so we'll play it safe and not close the tab.
@@ -479,14 +520,18 @@ async function closeOldTabs() {
     });
 
     const results = await Promise.all(closingPromises);
-    const closedTabsCount = results.filter(Boolean).length;
+    const closedTabs = results.filter(Boolean);
 
-    if (closedTabsCount > 0) {
+    if (closedTabs.length > 0) {
+        const notificationItems = closedTabs.map(tab => ({ title: tab.title }));
+        const title = `Closed ${closedTabs.length} old tab(s)`;
+
         chrome.notifications.create({
-            type: 'basic',
-            iconUrl: 'icon128.png', // Assuming you have an icon
-            title: 'Tbbr Tab Cleanup',
-            message: `Closed ${closedTabsCount} old tab(s).`
+            type: 'list',
+            iconUrl: 'icon128.png',
+            title: title,
+            message: title, // Message is required but not shown for list notifications
+            items: notificationItems
         });
     }
 }
@@ -509,11 +554,13 @@ function startPickMode(isCloseMode) {
     pickModeTimeoutId = setTimeout(endPickMode, 5000);
 
     chrome.tabs.query({ currentWindow: true }, (tabList) => {
-        if (!tabList.length) return;
-        tabList.forEach((tab) => {
-            if (isUrlRestricted(tab.url)) {
-                return;
-            }
+        // Filter out restricted tabs where script injection would fail.
+        const injectableTabs = tabList.filter(tab => !isUrlRestricted(tab.url));
+        if (!injectableTabs.length) return;
+
+        injectableTabs.forEach((tab, index) => {
+            // Ensure the original title is stored before we manipulate it.
+            setOriginalTitle(tab.id, tab.title);
 
             const listenerToInject = tab.active ? politeListener : robustListener;
             chrome.scripting.executeScript({
@@ -522,17 +569,19 @@ function startPickMode(isCloseMode) {
                 func: listenerToInject
             }).catch(err => {});
 
-            const title = listOfLetters[tab.index] ?? tab.index.toString();
+            // Assign letters based on the index in the *filtered* list.
+            const titlePrefix = listOfLetters[index] ?? index.toString();
+
+            // Inject a script that prepends the letter.
             chrome.scripting.executeScript({
-                func: function(titleStr) {
-                    if (typeof document.oldTitle === 'undefined' || !document.title.startsWith(titleStr + ':')) {
-                        document.oldTitle = document.title;
-                    }
-                    document.title = titleStr + ': ' + document.oldTitle;
+                func: function(prefix, currentTitle) {
+                    // It's possible the title was already changed by another feature (e.g. timers).
+                    // Prepend to the current title to stack prefixes correctly.
+                    document.title = prefix + ': ' + currentTitle;
                 },
-                args: [title],
+                args: [titlePrefix, tab.title],
                 target: { tabId: tab.id, allFrames: true }
-            });
+            }).catch(err => {});
         });
     });
 }
@@ -551,6 +600,8 @@ function endPickMode() {
         });
     });
 
+    // When pick mode ends, revert titles. If countdown timers are active,
+    // they will re-apply their own prefixes on the next interval.
     revertAllTabTitlesAndCleanUp();
 }
 
@@ -561,15 +612,19 @@ function handlePickModeKeyPress(key, shiftKey) {
     }
     pendingMoveInfo = { tabId: null, initialDuration: reorderDelay, startTime: 0, timePaused: 0 };
 
-    const tabIndex = listOfLetters.indexOf(key);
-    if (tabIndex > -1) {
-        chrome.tabs.query({ index: tabIndex, currentWindow: true }, (tabs) => {
-            if (tabs && tabs.length > 0) {
-                const targetTabId = tabs[0].id;
-                if (shiftKey || isClosePickMode) {
-                    chrome.tabs.remove(targetTabId);
-                } else {
-                    chrome.tabs.update(targetTabId, { active: true, highlighted: true });
+    const letterIndex = listOfLetters.indexOf(key);
+    if (letterIndex > -1) {
+        chrome.tabs.query({ currentWindow: true }, (tabs) => {
+            const injectableTabs = tabs.filter(tab => !isUrlRestricted(tab.url));
+            if (letterIndex < injectableTabs.length) {
+                const targetTab = injectableTabs[letterIndex];
+                if (targetTab) {
+                    const targetTabId = targetTab.id;
+                    if (shiftKey || isClosePickMode) {
+                        chrome.tabs.remove(targetTabId);
+                    } else {
+                        chrome.tabs.update(targetTabId, { active: true, highlighted: true });
+                    }
                 }
             }
         });
@@ -677,8 +732,9 @@ function startAllCountdownTimers() {
 function stopAllCountdownTimers() {
     if (countdownIntervalId) clearInterval(countdownIntervalId);
     countdownIntervalId = null;
-    revertAllTabTitlesAndCleanUp(); // Use the existing robust title restore function
+    revertAllTabTitlesAndCleanUp();
 }
+
 
 async function updateAllTabTimers() {
     if (!areTimersVisible) return;
@@ -687,35 +743,20 @@ async function updateAllTabTimers() {
     const allTabs = await chrome.tabs.query({ currentWindow: true });
 
     for (const tab of allTabs) {
-        const lastActivated = tabLastActivated[tab.id];
-        const isExcluded = !tab.id || !lastActivated || (activeTab && tab.id === activeTab.id) || isTabPinned(tab) || isUrlRestricted(tab.url);
+        if (isUrlRestricted(tab.url)) continue;
 
-        if (isExcluded) {
-            // This tab should NOT have a timer. We'll clean it up by invoking the same
-            // logic as reverting titles, but only for this specific tab.
-            chrome.scripting.executeScript({
-                target: { tabId: tab.id },
-                func: (isPinned) => {
-                    const timerRegex = /^\[(WARN\s)?(\d{2}:\d{2}|EXPIRED)\]\s/;
-                    // Only act if a timer is actually present
-                    if (document.title.match(timerRegex)) {
-                        if (typeof document.oldTitle !== 'undefined') {
-                            let newTitle = document.oldTitle;
-                            const pinMarker = "📌 ";
-                            if (newTitle.startsWith(pinMarker)) {
-                                newTitle = newTitle.substring(pinMarker.length);
-                            }
-                            document.title = isPinned ? pinMarker + newTitle : newTitle;
-                            delete document.oldTitle;
-                        } else {
-                            document.title = document.title.replace(timerRegex, '');
-                        }
-                    }
-                },
-                args: [isTabPinned(tab)]
-            }).catch(err => {});
-        } else {
-            // This tab SHOULD have a timer. Calculate and apply it.
+        const lastActivated = tabLastActivated[tab.id];
+        const isExcluded = !tab.id || !lastActivated || (activeTab && tab.id === activeTab.id) || isTabPinned(tab);
+
+        // Ensure the original title is stored before any manipulation.
+        setOriginalTitle(tab.id, tab.title);
+        const originalTitle = tabOriginalTitles.get(tab.id);
+        const isPinned = isTabPinned(tab);
+        const pinMarker = "📌 ";
+        let newTitle = isPinned ? pinMarker + originalTitle : originalTitle;
+
+        if (!isExcluded) {
+            // This tab should have a timer. Calculate and apply it.
             const now = Date.now();
             const autoCloseTimeMs = autoCloseTime * 60 * 1000;
             const deadline = lastActivated + autoCloseTimeMs;
@@ -724,34 +765,25 @@ async function updateAllTabTimers() {
             let timeStr;
 
             if (remainingMs <= 0) {
-                timeStr = "[EXPIRED] ";
+                timeStr = "[EXPIRED]";
             } else {
                 const minutes = String(Math.floor(remainingMs / 60000)).padStart(2, '0');
                 const seconds = String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, '0');
-
                 if (warningTimeMs > 0 && remainingMs <= warningTimeMs) {
-                    timeStr = `[WARN ${minutes}:${seconds}] `;
+                    timeStr = `[WARN ${minutes}:${seconds}]`;
                 } else {
-                    timeStr = `[${minutes}:${seconds}] `;
+                    timeStr = `[${minutes}:${seconds}]`;
                 }
             }
+            newTitle = timeStr + " " + newTitle;
+        }
 
+        // Apply the new title only if it's different to prevent unnecessary script injections.
+        if (tab.title !== newTitle) {
             chrome.scripting.executeScript({
                 target: { tabId: tab.id },
-                func: (prefix) => {
-                    const timerRegex = /^\[(WARN\s)?(\d{2}:\d{2}|EXPIRED)\]\s/;
-                    const pinMarker = "📌 ";
-
-                    if (typeof document.oldTitle === 'undefined') {
-                        document.oldTitle = document.title;
-                    }
-
-                    let baseTitle = document.oldTitle.replace(timerRegex, '').replace(pinMarker, '');
-                    document.oldTitle = baseTitle;
-
-                    document.title = prefix + (document.title.includes(pinMarker) ? pinMarker : '') + baseTitle;
-                },
-                args: [timeStr]
+                func: (title) => { document.title = title; },
+                args: [newTitle]
             }).catch(err => {});
         }
     }
@@ -1015,28 +1047,42 @@ function revertAllTabTitlesAndCleanUp() {
             return;
         }
         tabs.forEach((tab) => {
-            if (isUrlRestricted(tab.url)) {
-                return;
+            if (isUrlRestricted(tab.url) || !tabOriginalTitles.has(tab.id)) {
+                return; // Only touch tabs we've modified.
             }
 
-            const isPinned = pinnedTabs.includes(tab.id);
-            chrome.scripting.executeScript({
-                target: { tabId: tab.id, allFrames: true },
-                args: [isPinned],
-                func: (isPinned) => {
-                    if (typeof document.oldTitle !== 'undefined') {
-                        let newTitle = document.oldTitle;
-                        const pinMarker = "📌 ";
-                        if (newTitle.startsWith(pinMarker)) {
-                            newTitle = newTitle.substring(pinMarker.length);
-                        }
-                        document.title = isPinned ? pinMarker + newTitle : newTitle;
-                        delete document.oldTitle;
-                    }
-                }
-            }).catch(err => {});
+            const originalTitle = tabOriginalTitles.get(tab.id);
+            const isPinned = isTabPinned(tab);
+            const pinMarker = "📌 ";
+            const restoredTitle = isPinned ? pinMarker + originalTitle : originalTitle;
+
+            // Only update if the title is actually different.
+            if (tab.title !== restoredTitle) {
+                chrome.scripting.executeScript({
+                    target: { tabId: tab.id, allFrames: true },
+                    func: (title) => { document.title = title; },
+                    args: [restoredTitle]
+                }).catch(err => {});
+            }
         });
     });
+}
+
+// Stores the pristine, original title for a tab if it hasn't been stored yet.
+// This function is the gatekeeper that prevents state corruption.
+function setOriginalTitle(tabId, title) {
+    if (!tabOriginalTitles.has(tabId)) {
+        // Clean the title of any existing prefixes from previous sessions or errors
+        // before storing it as the "original".
+        const timerRegex = /^\[(WARN\s)?([\d:]+|EXPIRED)\]\s/;
+        const pickModeRegex = /^[a-z;,.]:\s/;
+        const pinMarker = "📌 ";
+        const cleanedTitle = title
+            .replace(timerRegex, '')
+            .replace(pickModeRegex, '')
+            .replace(pinMarker, '');
+        tabOriginalTitles.set(tabId, cleanedTitle);
+    }
 }
 
 function isUrlRestricted(url) {
