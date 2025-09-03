@@ -2,106 +2,212 @@
 <html>
 <head>
     <title>Tbbr Options</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
+        :root {
+            --background-color: #f4f7f9;
+            --container-bg: #ffffff;
+            --text-primary: #2c3e50;
+            --text-secondary: #5a6b7b;
+            --border-color: #dfe6ec;
+            --accent-color: #3498db;
+            --success-color: #2ecc71;
+            --shadow-color: rgba(44, 62, 80, 0.1);
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: #efefef;
-            color: #323232;
+            background-color: var(--background-color);
+            color: var(--text-primary);
             margin: 0;
-            padding: 20px;
+            padding: 2rem;
             display: flex;
             justify-content: center;
-            align-items: center;
+            align-items: flex-start;
             min-height: 100vh;
             box-sizing: border-box;
         }
+
         .container {
-            background: #fff;
-            padding: 30px;
-            border-radius: 5px;
-            box-shadow: 0 -1px 12px rgba(0,0,0,0.1);
+            background: var(--container-bg);
+            padding: 2rem 2.5rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px var(--shadow-color);
             width: 100%;
-            max-width: 540px;
-            padding-top: 15px;
+            max-width: 600px;
         }
-        h1 {
+
+        header {
             text-align: center;
-            margin-bottom: 80px;
-            font-size: 2rem;
+            margin-bottom: 2.5rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 1rem;
         }
+
+        h1 {
+            font-size: 1.75rem;
+            margin: 0;
+        }
+
+        fieldset {
+            border: none;
+            padding: 0;
+            margin: 0 0 2rem 0;
+        }
+
+        legend {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            padding-bottom: 0.5rem;
+            width: 100%;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .option-group {
+            display: flex;
+            flex-direction: column;
+            gap: 1.75rem;
+        }
+
         .option {
-            margin-bottom: 40px;
+            display: flex;
+            flex-direction: column;
         }
+
         label {
             display: block;
-            margin-bottom: 8px;
+            margin-bottom: 0.5rem;
             font-weight: 500;
-            font-size: 1.2rem;
+            font-size: 1rem;
         }
-        input[type="number"], input[type="checkbox"] {
-            margin-right: 8px;
-        }
-        input[type="number"] {
-            width: 80px;
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-        .auto-close-label {
+
+        .checkbox-label {
             display: flex;
+            flex-direction: row;
             align-items: center;
+            font-weight: 500;
+            cursor: pointer;
         }
+
+        .description {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin: 0.5rem 0 0 0;
+            line-height: 1.5;
+        }
+
+        input[type="number"],
+        input[type="checkbox"] {
+            margin-right: 0.75rem;
+        }
+
+        input[type="number"] {
+            width: 70px;
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 0.9rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        input[type="number"]:focus {
+            outline: none;
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+        }
+        
+        input[type="checkbox"] {
+            width: 1.15em;
+            height: 1.15em;
+            accent-color: var(--accent-color);
+        }
+
         #status {
             text-align: center;
-            margin-top: 20px;
-            color: #4caf50;
+            margin-top: 1.5rem;
+            color: var(--success-color);
             height: 20px;
+            font-weight: 500;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+        }
+        #status.visible {
+            opacity: 1;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Tbbr Settings</h1>
-        <div class="option">
-            <label for="delay">Auto-reorder delay (in seconds):</label>
-            <input type="number" id="delay" min="0">
-        </div>
+        <header>
+            <h1>Tbbr Settings</h1>
+        </header>
 
-        <div class="option">
-            <label for="cycleTimeout">Cycle-through-tabs timeout (in seconds):</label>
-            <input type="number" id="cycleTimeout" min="1">
-        </div>
+        <form>
+            <fieldset>
+                <legend>General Navigation</legend>
+                <div class="option-group">
+                    <div class="option">
+                        <label for="delay">Auto-reorder delay</label>
+                        <input type="number" id="delay" min="0">
+                        <p class="description">Seconds to wait on a tab before moving it to the first position.</p>
+                    </div>
 
-        <div class="option">
-            <label class="auto-close-label" for="autoCloseEnabled">
-                <input type="checkbox" id="autoCloseEnabled">
-                Automatically close tabs that haven't been opened in a while
-            </label>
-        </div>
+                    <div class="option">
+                        <label for="isActiveDelay">Tab activation delay</label>
+                        <input type="number" id="isActiveDelay" min="0" step="0.1">
+                        <p class="description">Seconds to wait before a tab is marked "active" for history and timers. Use 0 for immediate.</p>
+                    </div>
 
-        <div class="option">
-            <label for="autoCloseTime">Auto-close time (in minutes):</label>
-            <input type="number" id="autoCloseTime" min="1" value="60">
-        </div>
+                    <div class="option">
+                        <label for="cycleTimeout">Cycle-through-tabs timeout</label>
+                        <input type="number" id="cycleTimeout" min="1">
+                        <p class="description">Seconds you have to press the cycle shortcut again before the mode ends.</p>
+                    </div>
+                </div>
+            </fieldset>
 
-        <div class="option">
-            <label for="warningTime">Show warning indicator when a tab is (in minutes):</label>
-            <input type="number" id="warningTime" min="0">
-        </div>
+            <fieldset>
+                <legend>Automatic Tab Closing</legend>
+                <div class="option-group">
+                    <div class="option">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="autoCloseEnabled">
+                            Enable Auto-Close
+                        </label>
+                        <p class="description">When enabled, automatically closes unused tabs after a set time.</p>
+                    </div>
 
-        <div class="option">
-            <label for="isActiveDelay">Mark tab as active after (in seconds, 0 for immediate):</label>
-            <input type="number" id="isActiveDelay" min="0" step="0.1">
-        </div>
+                    <div class="option">
+                        <label for="autoCloseTime">Auto-close time</label>
+                        <input type="number" id="autoCloseTime" min="1" value="60">
+                        <p class="description">Minutes a tab must be inactive before it is considered for closing.</p>
+                    </div>
+                    
+                    <div class="option">
+                        <label for="warningTime">Warning indicator time</label>
+                        <input type="number" id="warningTime" min="0">
+                        <p class="description">Minutes before auto-closing to show a "WARN" indicator in the tab title.</p>
+                    </div>
+                </div>
+            </fieldset>
+            
+            <fieldset>
+                <legend>Bulk Actions</legend>
+                <div class="option-group">
+                     <div class="option">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="skipPinned">
+                            Skip pinned tabs
+                        </label>
+                        <p class="description">When using "close-all" commands, do not close pinned tabs.</p>
+                    </div>
+                </div>
+            </fieldset>
 
-        <div class="option">
-            <label class="auto-close-label" for="skipPinned">
-                <input type="checkbox" id="skipPinned">
-                When using "close-all" commands, skip pinned tabs
-            </label>
-        </div>
-
-        <div id="status"></div>
+            <div id="status"></div>
+        </form>
     </div>
 
     <script src="options.js"></script>
