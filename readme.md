@@ -71,14 +71,18 @@ You can cancel out of Pick Mode by hitting `Escape`.
 
 #### Recency-based Navigation
 *   **`go-to-last-tab`**: Instantly switch to your previously active tab.
-*   **`cycle-through-tabs`**: Activate to jump to the last tab you were on. Activate again (within a timeout) to jump to the one before that, and so on.
+*   **`cycle-through-tabs`**: This command lets you walk backward through your tab history. When you activate it the first time, it jumps to the last tab you were on. If you activate it again within a few seconds (configurable), it jumps to the tab before that, and so on. This "cycle mode" ends when you stop activating the command, leaving you on the last tab you cycled to.
 
 #### Positional Navigation
 *   **`go-to-following-tab`**: Switch to the tab immediately to the right (wraps around).
 *   **`go-to-preceeding-tab`**: Switch to the tab immediately to the left (wraps around).
 *   **`go-to-first-tab`**: Jump to the first tab in the tab list.
 *   **`go-to-last-tab-in-list`**: Jump to the last tab in the tab list.
-*   **`focus-tab-1`** / **`focus-tab-2`** / etc: Jump directly to the tab at a specific position. (Suggested: `Alt+u`, `Alt+i`, `Alt+o`, `Alt+p`)
+*   **Focus Tab by Position**: Jump directly to a tab based on its physical position in the tab bar.
+    *   **`focus-tab-1`**: Jumps to the 1st tab. (Suggested: `Alt+u`)
+    *   **`focus-tab-2`**: Jumps to the 2nd tab. (Suggested: `Alt+i`)
+    *   **`focus-tab-3`**: Jumps to the 3rd tab. (Suggested: `Alt+o`)
+    *   **`focus-tab-4`**: Jumps to the 4th tab. (Suggested: `Alt+p`)
 
 ### Tab Organization
 
