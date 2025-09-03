@@ -1,6 +1,6 @@
 # Tbbr
 
-Tbbr is a Chrome extension I made for sane tab management. Best used in conjunction with [Vimium C](https://github.com/gdh1995/vimium-c).
+Tbbr is a Chrome extension for sane tab management. It's designed to keep your current work front-and-center and reduce tab clutter. Best used in conjunction with [Vimium C](https://github.com/gdh1995/vimium-c).
 
 I hacked this together and don't recommend you using this.
 
@@ -23,29 +23,47 @@ This will download the extension to a folder named `Tbbr` inside your local AppD
 
 ### Loading the extension
 
-Then go to `chrome://extensions`, and turn on developer mode.
+1.  Navigate to `chrome://extensions` in your browser.
+2.  Turn on **Developer mode** using the toggle in the top-right corner.
+3.  Click **Load unpacked**.
+4.  Navigate to and select the directory where you downloaded the files (e.g., `~/.local/share/Tbbr` on Linux or `"$env:LOCALAPPDATA\Tbbr"` on Windows).
+5.  **Important:** Go to `chrome://extensions/shortcuts`. You must set your own keyboard shortcuts for the extension's commands to make them do anything.
 
-After that, click *Load unpacked* and navigate to/select the directory where you downloaded the files (e.g., `cd ~/.local/share/Tbbr` on Linux or `cd "$env:LOCALAPPDATA\Tbbr"` on Windows).
+## Features
 
-Finally, and this is the important part, navigate to `chrome://extensions/shortcuts`. You'll need to set your own keyboard shortcuts for the extension's commands to make them do anything.
+All commands must have shortcuts assigned by you at `chrome://extensions/shortcuts`.
 
-## Usage
+### Intelligent Tab Activation
 
-Tbbr does a few things. All commands must have shortcuts assigned by you at `chrome://extensions/shortcuts`.
+To prevent tabs you flick past from cluttering your history, Tbbr waits for a moment before considering a tab "active." This means quickly cycling through tabs won't reset their auto-close timer or add them to your recency list. This delay is configurable in the extension's options (the default is 0 for immediate activation).
 
-### Automatic Tab Reordering
+### Automatic Tab Management
 
-By default, after you land on a tab and wait 5 seconds (configurable in settings), it gets moved to the first position. This helps keep your current context from getting buried. Pinned tabs are ignored. The timer pauses if your mouse leaves the webpage.
+#### Auto Reordering
+By default, after you land on a tab and it becomes active, a 5-second timer starts (configurable in settings). If you remain on the tab, it gets moved to the first position. This helps keep your current context from getting buried.
+*   Pinned tabs are ignored.
+*   The timer pauses if your mouse leaves the webpage.
+
+#### Auto Closing
+You can enable a feature to automatically close tabs that have not been used after a configurable amount of time. This feature is disabled by default and has several safeguards:
+*   It will **not** close pinned tabs, audible tabs, or the currently active tab.
+*   It attempts to avoid closing tabs with unsaved form changes.
+*   **`close-all-old-tabs`**: You can also manually trigger this cleanup with a keyboard shortcut.
+
+#### Countdown Timers & Warnings
+When auto-close is on, you can toggle a countdown timer in each tab's title to see when it will be closed.
+*   **`toggle-countdown-timers`**: Shows a countdown like `[59:30]` in each tab's title.
+*   **Warning Indicator**: When a tab is close to being automatically closed, the indicator will change to give you a heads-up (e.g., `[WARN 04:59]`). You can configure this warning period in the options.
 
 ### Pick Mode (Tab Switching & Closing)
 
-There's a tab selection mode that lets you switch to, or close, any open tab with a couple of keystrokes.
-1.  Activate it with the keyboard shortcut for the `"pick"` command.
-2.  The title of each tab will get a letter prepended to it, like `s: Google Search - Results ...`
+This mode lets you switch to, or close, any open tab with a couple of keystrokes.
+1.  Activate it with the keyboard shortcut for the **`"pick"`** command.
+2.  The title of each tab will get a letter prepended to it, like `s: Google Search`.
 3.  To switch to a tab, press the letter corresponding to that tab.
-4.  To **close** a tab, press **Shift + letter** for that tab.
+4.  To **close** a tab, press **Shift + letter**.
 
-There is also a dedicated `"close-pick"` command. If you activate pick mode using the shortcut for this command, pressing a letter will close the corresponding tab directly, without needing to hold Shift.
+There is also a dedicated **`"close-pick"`** command. If you activate pick mode with this command's shortcut, pressing a letter will close the corresponding tab directly, without needing Shift.
 
 You can cancel out of Pick Mode by hitting `Escape`.
 
@@ -53,49 +71,37 @@ You can cancel out of Pick Mode by hitting `Escape`.
 
 #### Recency-based Navigation
 *   **`go-to-last-tab`**: Instantly switch to your previously active tab.
-*   **`cycle-through-tabs`**: Activate this command to jump to the last tab you were on. Activate it again (within a configurable timeout) to jump to the one before that, and so on.
+*   **`cycle-through-tabs`**: Activate to jump to the last tab you were on. Activate again (within a timeout) to jump to the one before that, and so on.
 
 #### Positional Navigation
 *   **`go-to-following-tab`**: Switch to the tab immediately to the right (wraps around).
 *   **`go-to-preceeding-tab`**: Switch to the tab immediately to the left (wraps around).
 *   **`go-to-first-tab`**: Jump to the first tab in the tab list.
 *   **`go-to-last-tab-in-list`**: Jump to the last tab in the tab list.
-*   **`focus-tab-1`**: `Alt+u` (suggested)
-*   **`focus-tab-2`**: `Alt+i` (suggested)
-*   **`focus-tab-3`**: `Alt+o` (suggested)
-*   **`focus-tab-4`**: `Alt+p` (suggested)
+*   **`focus-tab-1`** / **`focus-tab-2`** / etc: Jump directly to the tab at a specific position. (Suggested: `Alt+u`, `Alt+i`, `Alt+o`, `Alt+p`)
 
-### Tab Management Commands
+### Tab Organization
 
-*   **`move-to-first`**: Move current tab to the front. `Alt+g` (suggested)
+#### Pinning a Tab
+To prevent a tab from being automatically reordered or closed by bulk actions, you can pin it. This is useful for tabs you always want to keep in a specific place.
+*   Use the keyboard shortcut for the **`"toggle-pin"`** command to pin or unpin a tab.
+*   Pinned tabs get a "📌" icon at the beginning of their title.
+*   This works with Chrome's native pinning feature.
+
+#### Other Management Commands
+*   **`move-to-first`**: Move current tab to the front. (Suggested: `Alt+g`)
 *   **`reopen-last-closed-tab`**: Restores the most recently closed tab or window.
 *   **`close-all-preceding-tabs`**: Closes all tabs to the left of the current tab.
 *   **`close-all-following-tabs`**: Closes all tabs to the right of the current tab.
 *   **`close-all-except-current`**: Closes all other tabs in the window.
 
-### Pin a Tab
-
-To prevent a tab from being automatically reordered or closed by bulk actions, you can "pin" it. This is useful for tabs you always want to keep in a specific place.
-
-*   To pin or unpin a tab, use the keyboard shortcut for the `"toggle-pin"` command.
-*   When a tab is pinned, you'll see a "📌" icon at the beginning of its title.
-*   This works with Chrome's native pinning feature—if you pin a tab with your mouse, the extension will also treat it as pinned.
-
-### Automatic Tab Closing
-
-You can enable a feature to automatically close tabs that have not been used after a configurable amount of time. This feature is disabled by default and has several safeguards: it will not close pinned tabs, audible tabs, or tabs that appear to have unsaved changes.
-
-*   **`close-all-old-tabs`**: You can also manually trigger this cleanup with a keyboard shortcut.
-*   **`toggle-countdown-timers`**: When auto-close is on, this shows a countdown in each tab's title (e.g., `[59:30]`) for when it will be closed.
-
 ### Extension Options
 
 You can configure the extension's behavior by right-clicking the extension icon and selecting "Options". Settings include:
-*   Auto-reorder delay.
-*   Tab cycle timeout.
-*   Enable and configure automatic tab closing.
-*   Choose whether bulk-closing commands should ignore pinned tabs (enabled by default).
-
-### Planned Features
-- About-to-be-deleted indicator: When a tab is close to deletion, its title will update to show an indicator and an optional countdown.
-- Customizable isActive timer: Lets users quickly switch or pass through tabs without marking them as "active." This prevents their inactivity timer from resetting or adding them to the history stack—unless the isActive timer runs out.
+*   **Auto-reorder delay**: Time in seconds to wait on a tab before moving it to the front.
+*   **Cycle-through-tabs timeout**: Time in seconds you have to activate the cycle command again.
+*   **Enable auto-close**: Toggle automatic closing of old tabs.
+*   **Auto-close time**: How long a tab must be inactive (in minutes) before it's closed.
+*   **Show warning indicator**: How many minutes before auto-closing to show the "WARN" indicator.
+*   **Mark tab as active after**: Delay in seconds before a tab is considered "active" for history and timers. Use 0 for immediate.
+*   **Skip pinned tabs in "close-all" commands**: Choose whether bulk-closing ignores pinned tabs (enabled by default).
