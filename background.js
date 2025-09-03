@@ -236,11 +236,13 @@ function handleTabUpdated(tabId, changeInfo, tab) {
 
         // Persist the change (if any) and update the title to ensure the pin icon is correct.
         chrome.storage.local.set({ pinnedTabs: pinnedTabs }, () => {
-            // The second argument determines if the pin icon should be shown.
-            // We pass the new native pin state directly, as per the user's design.
-            // This ensures that unpinning natively removes the icon, even if the tab remains soft-pinned.
-            // The soft-pin will be apparent on the next title update by another feature.
-            updateTabTitle(tabId, isNativelyPinned);
+            // CORRECTION: Always use the single source of truth to update the UI.
+            // We need the full tab object for this check.
+            chrome.tabs.get(tabId, (updatedTab) => {
+                if (updatedTab) {
+                    updateTabTitle(tabId, isTabPinned(updatedTab));
+                }
+            });
         });
     }
 
@@ -1121,19 +1123,20 @@ function updateTabTitle(tabId, shouldBePinned) {
             return;
         }
 
-        // This function should not be responsible for other features' prefixes.
-        // It has one job: ensure the pin icon is present or absent based on the
-        // combined pinned state. Other features will re-apply their prefixes
-        // on their own schedule.
-        const baseTitle = (tabOriginalTitles.get(tabId) || tab.title).replace(/^📌\s/, '');
+        // CORRECTION: First, ensure the pristine title is known and use it.
+        setOriginalTitle(tabId, tab.title);
+        const originalTitle = tabOriginalTitles.get(tabId);
+
         const pinMarker = "📌 ";
-        let newTitle = baseTitle;
+        let newTitle = originalTitle; // Always start from the clean base title.
 
         if (shouldBePinned) {
-            newTitle = pinMarker + baseTitle;
+            newTitle = pinMarker + originalTitle;
         }
 
-        // Only inject the script if the title actually needs to change.
+        // Other features (like timers) will re-apply their own prefixes on their
+        // next update cycle. This function's only job is to manage the pin icon.
+
         if (tab.title !== newTitle) {
             chrome.scripting.executeScript({
                 target: { tabId: tabId },
