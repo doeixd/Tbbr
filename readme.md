@@ -95,3 +95,7 @@ You can configure the extension's behavior by right-clicking the extension icon 
 *   Tab cycle timeout.
 *   Enable and configure automatic tab closing.
 *   Choose whether bulk-closing commands should ignore pinned tabs (enabled by default).
+
+### Planned Features
+- About-to-be-deleted indicator: When a tab is close to deletion, its title will update to show an indicator and an optional countdown.
+- Customizable isActive timer: Lets users quickly switch or pass through tabs without marking them as "active." This prevents their inactivity timer from resetting or adding them to the history stack—unless the isActive timer runs out.
