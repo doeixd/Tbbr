@@ -313,6 +313,9 @@ function handleCommand(command) {
         case 'move-tab-right':
             moveTabRight();
             break;
+        case 'move-tab-to-end':
+            moveTabToEnd();
+            break;
         default:
             if (command.startsWith('focus-tab-')) {
                 focusTabByIndex(command);
@@ -777,6 +780,17 @@ function moveTabRight() {
                 if (currentTab.index < allTabs.length - 1) {
                     chrome.tabs.move(currentTab.id, { index: currentTab.index + 1 });
                 }
+            });
+        }
+    });
+}
+
+function moveTabToEnd() {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs.length > 0) {
+            const currentTab = tabs[0];
+            chrome.tabs.query({ currentWindow: true }, (allTabs) => {
+                chrome.tabs.move(currentTab.id, { index: allTabs.length - 1 });
             });
         }
     });
