@@ -139,6 +139,10 @@
     "move-tab-right": {
       "description": "Move the current tab to the right",
       "global": true
+    },
+    "move-tab-to-end": {
+      "description": "Move the current tab to the end",
+      "global": true
     }
   }
 }
