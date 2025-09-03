@@ -259,7 +259,10 @@ function handleCommand(command) {
             goToLastTab();
             break;
         case 'cycle-through-tabs':
-            cycleThroughTabs();
+            cycleThroughTabs('backward');
+            break;
+        case 'cycle-through-tabs-forward':
+            cycleThroughTabs('forward');
             break;
         case 'toggle-pin':
             togglePin();
@@ -846,7 +849,25 @@ function reopenLastClosedTab() {
     });
 }
 
-function cycleThroughTabs() {
+function getNextCycleTabIndex(currentIndex, direction, history, originalTabId) {
+    if (history.length < 2) return currentIndex;
+
+    const increment = direction === 'backward' ? 1 : -1;
+    let nextIndex = currentIndex;
+
+    // Loop to find the next tab that isn't the one the cycle started from.
+    // We check up to history.length times to avoid an infinite loop in weird edge cases.
+    for (let i = 0; i < history.length; i++) {
+        nextIndex = (nextIndex + increment + history.length) % history.length;
+        if (history[nextIndex] !== originalTabId) {
+            return nextIndex;
+        }
+    }
+    // Fallback in case all tabs are the original tab (shouldn't happen in normal use).
+    return (currentIndex + increment + history.length) % history.length;
+}
+
+function cycleThroughTabs(direction = 'backward') {
     if (tabHistory.length < 2) return;
 
     if (!cycleState.active) {
@@ -854,20 +875,21 @@ function cycleThroughTabs() {
             if (tabs.length > 0) {
                 cycleState.originalTabId = tabs[0].id;
                 cycleState.active = true;
-                cycleState.currentIndex = 1;
-                if (tabHistory[cycleState.currentIndex] === cycleState.originalTabId) {
-                  cycleState.currentIndex = (cycleState.currentIndex + 1) % tabHistory.length;
-                }
+
+                const startIndex = tabHistory.indexOf(cycleState.originalTabId);
+                const validStartIndex = startIndex !== -1 ? startIndex : 0;
+
+                cycleState.currentIndex = getNextCycleTabIndex(validStartIndex, direction, tabHistory, cycleState.originalTabId);
+
                 chrome.tabs.update(tabHistory[cycleState.currentIndex], { active: true });
                 cycleState.timeoutId = setTimeout(endCycle, cycleTimeout);
             }
         });
     } else {
         clearTimeout(cycleState.timeoutId);
-        cycleState.currentIndex = (cycleState.currentIndex + 1) % tabHistory.length;
-        if (tabHistory[cycleState.currentIndex] === cycleState.originalTabId) {
-            cycleState.currentIndex = (cycleState.currentIndex + 1) % tabHistory.length;
-        }
+
+        cycleState.currentIndex = getNextCycleTabIndex(cycleState.currentIndex, direction, tabHistory, cycleState.originalTabId);
+
         chrome.tabs.update(tabHistory[cycleState.currentIndex], { active: true });
         cycleState.timeoutId = setTimeout(endCycle, cycleTimeout);
     }

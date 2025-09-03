@@ -88,6 +88,10 @@
       "description": "Cycle through previous tabs",
       "global": true
     },
+    "cycle-through-tabs-forward": {
+      "description": "Cycle through tabs in the opposite direction",
+      "global": true
+    },
     "close-pick": {
       "description": "Select a tab to close by letter",
       "global": true
