@@ -120,10 +120,23 @@
             transition: border-color 0.2s, box-shadow 0.2s;
         }
 
-        input[type="number"]:focus {
+        input[type="number"]:focus,
+        textarea:focus {
             outline: none;
             border-color: var(--accent-color);
             box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+        }
+
+        textarea {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 0.9rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            box-sizing: border-box;
+            font-family: inherit;
+            resize: vertical;
         }
         
         input[type="checkbox"] {
@@ -210,6 +223,17 @@
                             Skip pinned tabs
                         </label>
                         <p class="description">When using "close-all" commands, do not close pinned tabs.</p>
+                    </div>
+                </div>
+            </fieldset>
+
+            <fieldset>
+                <legend>Auto-Close Whitelist</legend>
+                <div class="option-group">
+                    <div class="option">
+                        <label for="autoCloseWhitelist">Domains to never auto-close</label>
+                        <textarea id="autoCloseWhitelist" rows="5"></textarea>
+                        <p class="description">Enter one domain per line (e.g., docs.google.com). Tabs with these domains will never be auto-closed, regardless of unsaved changes checks.</p>
                     </div>
                 </div>
             </fieldset>
