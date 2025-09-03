@@ -127,6 +127,14 @@
     "toggle-countdown-timers": {
       "description": "Show/hide time until tab is considered 'old'",
       "global": true
+    },
+    "move-tab-left": {
+      "description": "Move the current tab to the left",
+      "global": true
+    },
+    "move-tab-right": {
+      "description": "Move the current tab to the right",
+      "global": true
     }
   }
 }
