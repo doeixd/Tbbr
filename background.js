@@ -304,6 +304,12 @@ function handleCommand(command) {
         case 'toggle-countdown-timers':
             toggleCountdownTimers();
             break;
+        case 'move-tab-left':
+            moveTabLeft();
+            break;
+        case 'move-tab-right':
+            moveTabRight();
+            break;
         default:
             if (command.startsWith('focus-tab-')) {
                 focusTabByIndex(command);
@@ -748,6 +754,30 @@ async function updateAllTabTimers() {
 // =================================================================================================
 // Other Commands & Utility Functions
 // =================================================================================================
+
+function moveTabLeft() {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs.length > 0) {
+            const currentTab = tabs[0];
+            if (currentTab.index > 0) {
+                chrome.tabs.move(currentTab.id, { index: currentTab.index - 1 });
+            }
+        }
+    });
+}
+
+function moveTabRight() {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs.length > 0) {
+            const currentTab = tabs[0];
+            chrome.tabs.query({ currentWindow: true }, (allTabs) => {
+                if (currentTab.index < allTabs.length - 1) {
+                    chrome.tabs.move(currentTab.id, { index: currentTab.index + 1 });
+                }
+            });
+        }
+    });
+}
 
 function goToFollowingTab() {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
