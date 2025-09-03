@@ -267,10 +267,15 @@ function finalizeTabActivation(tabId) {
         timePaused: 0
     };
 
-    if (isMouseInsidePage) {
-        startMoveTimer(tabId, pendingMoveInfo.initialDuration);
-    } else {
-        pendingMoveInfo.timePaused = Date.now();
+    // --- CORRECTED LOGIC ---
+    // Always start the timer.
+    startMoveTimer(tabId, pendingMoveInfo.initialDuration);
+
+    // If the mouse is not inside the page, immediately pause the timer we just started.
+    if (!isMouseInsidePage) {
+        // The handleMouseLeave function contains the exact logic needed to pause a running timer.
+        // We can call it directly to enforce the paused state.
+        handleMouseLeave();
     }
 }
 
@@ -414,12 +419,20 @@ function handleMouseEnter() {
     }
 }
 
-function startMoveTimer(tabId, duration) {
-    // Perform a quick synchronous check first. This avoids unnecessary timer setup
-    // for tabs that are explicitly pinned in our internal list.
-    if (pinnedTabs.includes(tabId)) {
+async function startMoveTimer(tabId, duration) {
+    // --- CORRECTED LOGIC ---
+    // Make the function async to fetch full tab details.
+    try {
+        const tab = await chrome.tabs.get(tabId);
+        // Use the single source of truth for pinning.
+        if (isTabPinned(tab)) {
+            return;
+        }
+    } catch (error) {
+        // Tab may have been closed, which is fine.
         return;
     }
+
     if (tabMoveTimeoutId) {
         clearTimeout(tabMoveTimeoutId);
     }
@@ -436,8 +449,7 @@ function startMoveTimer(tabId, duration) {
 
         const [currentActiveTab] = await chrome.tabs.query({ currentWindow: true, active: true });
 
-        // Before moving, perform the full check, as the tab title might have changed
-        // or it might be a natively pinned tab.
+        // This secondary check is still good to have.
         if (currentActiveTab && currentActiveTab.id === pendingMoveInfo.tabId) {
             if (isTabPinned(currentActiveTab)) {
                 return; // Don't move pinned tabs
