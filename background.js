@@ -549,7 +549,7 @@ async function closeOldTabs() {
     const closedTabs = results.filter(Boolean);
 
     if (closedTabs.length > 0) {
-        const notificationItems = closedTabs.map(tab => ({ title: tab.title }));
+        const notificationItems = closedTabs.map(tab => ({ title: tab.title, message: tab.url || 'No URL available' }));
         const title = `Closed ${closedTabs.length} old tab(s)`;
 
         chrome.notifications.create({
