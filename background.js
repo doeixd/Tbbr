@@ -206,6 +206,29 @@ function handleStorageChange(changes, namespace) {
 
 function handleTabCreated(tab) {
     updateTabActivationTime(tab.id);
+
+    // If a new tab is created in the background, schedule it to be moved to the front.
+    // We don't do this for pinned tabs or active tabs (as they are handled by onActivated).
+    if (!tab.active && !isTabPinned(tab)) {
+        setTimeout(async () => {
+            try {
+                // Check if the tab has become the active tab in the meantime.
+                // If so, let the main onActivated logic handle its timer to avoid race conditions.
+                const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                if (activeTab && activeTab.id === tab.id) {
+                    return;
+                }
+
+                // Re-fetch the tab to get its latest state, and move if it still exists and is not pinned.
+                const tabToMove = await chrome.tabs.get(tab.id);
+                if (!isTabPinned(tabToMove)) {
+                    await chrome.tabs.move(tab.id, { index: 0 });
+                }
+            } catch (error) {
+                // The tab was likely closed before the timer fired, which is fine.
+            }
+        }, reorderDelay);
+    }
 }
 
 function handleTabRemoved(tabId, removeInfo) {
