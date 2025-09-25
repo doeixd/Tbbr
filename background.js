@@ -18,6 +18,7 @@ let autoCloseWhitelist = [];
 let tabLastActivated = {};
 let tabHistory = [];
 let pinnedTabs = [];
+let newTabIds = new Set();
 let isMouseInsidePage = false;
 let tabMoveTimeoutId = null;
 let isActiveTimeoutId = null;
@@ -207,14 +208,17 @@ function handleStorageChange(changes, namespace) {
 async function handleTabCreated(tab) {
     updateTabActivationTime(tab.id);
 
+    // If the new tab is the New Tab Page, track it.
+    if (tab.pendingUrl === 'chrome://newtab/' || tab.url === 'chrome://newtab/') {
+        newTabIds.add(tab.id);
+    }
+
     // If a new tab is created in the foreground (active), move it to the first position.
-    // We don't do this for pinned tabs.
     if (tab.active && !isTabPinned(tab)) {
         try {
-            // Move the tab to the first position.
             await chrome.tabs.move(tab.id, { index: 0 });
         } catch (error) {
-            // This can happen if the tab is closed very quickly, which is fine.
+            // This can happen if the tab is closed very quickly.
         }
     }
 }
@@ -228,11 +232,28 @@ function handleTabRemoved(tabId, removeInfo) {
         tabHistory.splice(index, 1);
     }
 
+    // Also remove from our set of "New Tab Pages" to prevent memory leaks.
+    newTabIds.delete(tabId);
+
     // Clean up the original title from our map to prevent memory leaks.
     tabOriginalTitles.delete(tabId);
 }
 
-function handleTabUpdated(tabId, changeInfo, tab) {
+async function handleTabUpdated(tabId, changeInfo, tab) {
+    // If a tracked "New Tab Page" navigates to a new URL, move it to the front.
+    if (newTabIds.has(tabId) && changeInfo.url && !changeInfo.url.startsWith('chrome://newtab')) {
+        if (!isTabPinned(tab)) {
+            try {
+                // This is now a regular tab, move it to the front.
+                await chrome.tabs.move(tabId, { index: 0 });
+            } catch (error) {
+                // Tab might have been closed, which is fine.
+            }
+        }
+        // Stop tracking this tab as a "New Tab Page".
+        newTabIds.delete(tabId);
+    }
+
     // Check if the native pinned status has changed.
     if (typeof changeInfo.pinned !== 'undefined') {
         const isNativelyPinned = changeInfo.pinned;
