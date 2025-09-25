@@ -207,12 +207,14 @@ function handleStorageChange(changes, namespace) {
 async function handleTabCreated(tab) {
     updateTabActivationTime(tab.id);
 
-    // Immediately move the new tab to the first position unless it's pinned.
-    if (!isTabPinned(tab)) {
+    // If a new tab is created in the foreground (active), move it to the first position.
+    // We don't do this for pinned tabs.
+    if (tab.active && !isTabPinned(tab)) {
         try {
+            // Move the tab to the first position.
             await chrome.tabs.move(tab.id, { index: 0 });
         } catch (error) {
-            // This can happen if the tab is closed very quickly.
+            // This can happen if the tab is closed very quickly, which is fine.
         }
     }
 }
