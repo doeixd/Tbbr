@@ -672,22 +672,28 @@ function handlePickModeKeyPress(key, shiftKey) {
 
     const letterIndex = listOfLetters.indexOf(key);
     if (letterIndex > -1) {
+        // Capture the mode at the time of the key press.
+        const shouldClose = isClosePickMode;
+
         chrome.tabs.query({ currentWindow: true }, (tabs) => {
             const injectableTabs = tabs.filter(tab => !isUrlRestricted(tab.url));
             if (letterIndex < injectableTabs.length) {
                 const targetTab = injectableTabs[letterIndex];
                 if (targetTab) {
                     const targetTabId = targetTab.id;
-                    if (shiftKey || isClosePickMode) {
+                    // Use the captured mode, not the global one which may have been reset.
+                    if (shiftKey || shouldClose) {
                         chrome.tabs.remove(targetTabId);
                     } else {
                         chrome.tabs.update(targetTabId, { active: true, highlighted: true });
                     }
                 }
             }
+            endPickMode();
         });
+    } else {
+        endPickMode();
     }
-    endPickMode();
 }
 
 // Content script for polite listener (active tab)
