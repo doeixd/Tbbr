@@ -212,15 +212,6 @@ async function handleTabCreated(tab) {
     if (tab.pendingUrl === 'chrome://newtab/' || tab.url === 'chrome://newtab/') {
         newTabIds.add(tab.id);
     }
-
-    // If a new tab is created in the foreground (active), move it to the first position.
-    if (tab.active && !isTabPinned(tab)) {
-        try {
-            await chrome.tabs.move(tab.id, { index: 0 });
-        } catch (error) {
-            // This can happen if the tab is closed very quickly.
-        }
-    }
 }
 
 function handleTabRemoved(tabId, removeInfo) {
@@ -302,13 +293,6 @@ function finalizeTabActivation(tabId) {
     // --- CORRECTED LOGIC ---
     // Always start the timer.
     startMoveTimer(tabId, pendingMoveInfo.initialDuration);
-
-    // If the mouse is not inside the page, immediately pause the timer we just started.
-    if (!isMouseInsidePage) {
-        // The handleMouseLeave function contains the exact logic needed to pause a running timer.
-        // We can call it directly to enforce the paused state.
-        handleMouseLeave();
-    }
 }
 
 function handleTabActivated(activeInfo) {
@@ -440,13 +424,8 @@ function handleMouseLeave() {
 
 function handleMouseEnter() {
     isMouseInsidePage = true;
+    // If a tab move is pending, has time remaining, and was explicitly paused, resume it.
     if (pendingMoveInfo.tabId && pendingMoveInfo.initialDuration > 0 && pendingMoveInfo.timePaused > 0) {
-        if (tabMoveTimeoutId) {
-            clearTimeout(tabMoveTimeoutId);
-            tabMoveTimeoutId = null;
-        }
-        startMoveTimer(pendingMoveInfo.tabId, pendingMoveInfo.initialDuration);
-    } else if (pendingMoveInfo.tabId && pendingMoveInfo.initialDuration > 0 && !tabMoveTimeoutId) {
         startMoveTimer(pendingMoveInfo.tabId, pendingMoveInfo.initialDuration);
     }
 }
@@ -478,20 +457,15 @@ async function startMoveTimer(tabId, duration) {
         if (!isMouseInsidePage) {
             return;
         }
-
-        const [currentActiveTab] = await chrome.tabs.query({ currentWindow: true, active: true });
-
-        // This secondary check is still good to have.
-        if (currentActiveTab && currentActiveTab.id === pendingMoveInfo.tabId) {
-            if (isTabPinned(currentActiveTab)) {
+        try {
+            const tab = await chrome.tabs.get(pendingMoveInfo.tabId);
+            if (isTabPinned(tab)) {
                 return; // Don't move pinned tabs
             }
-            try {
-                await chrome.tabs.move(pendingMoveInfo.tabId, { index: 0 });
-            } catch (error) {
-                // The tab might have been closed before the move operation.
-                console.error(`Error moving tab ${pendingMoveInfo.tabId}:`, error);
-            }
+            await chrome.tabs.move(pendingMoveInfo.tabId, { index: 0 });
+        } catch (error) {
+            // The tab might have been closed before the move operation.
+            console.error(`Error moving tab ${pendingMoveInfo.tabId}:`, error);
         }
 
         tabMoveTimeoutId = null;
