@@ -211,8 +211,17 @@ async function handleTabCreated(tab) {
     // If the new tab is the New Tab Page, track it.
     if (tab.pendingUrl === 'chrome://newtab/' || tab.url === 'chrome://newtab/') {
         newTabIds.add(tab.id);
+
+        if (!isTabPinned(tab)) {
+            try {
+                await chrome.tabs.move(tab.id, { index: 0 });
+            } catch (error) {
+                // Tab might have been closed, which is fine.
+            }
+        }
     }
 }
+
 
 function handleTabRemoved(tabId, removeInfo) {
     delete tabLastActivated[tabId];
