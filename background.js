@@ -463,11 +463,11 @@ async function startMoveTimer(tabId, duration) {
     pendingMoveInfo.timePaused = 0;
 
     tabMoveTimeoutId = setTimeout(async () => {
-        if (!isMouseInsidePage) {
-            return;
-        }
         try {
             const tab = await chrome.tabs.get(pendingMoveInfo.tabId);
+            if (!isMouseInsidePage && !isUrlRestricted(tab.url)) {
+                return;
+            }
             if (isTabPinned(tab)) {
                 return; // Don't move pinned tabs
             }
@@ -476,6 +476,7 @@ async function startMoveTimer(tabId, duration) {
             // The tab might have been closed before the move operation.
             console.error(`Error moving tab ${pendingMoveInfo.tabId}:`, error);
         }
+
 
         tabMoveTimeoutId = null;
         pendingMoveInfo.startTime = 0;
