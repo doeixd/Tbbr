@@ -465,13 +465,11 @@ async function startMoveTimer(tabId, duration) {
     tabMoveTimeoutId = setTimeout(async () => {
         try {
             const tab = await chrome.tabs.get(pendingMoveInfo.tabId);
-            if (!isMouseInsidePage && !isUrlRestricted(tab.url)) {
+            if (!shouldReorderTab(tab)) {
                 return;
             }
-            if (isTabPinned(tab)) {
-                return; // Don't move pinned tabs
-            }
             await chrome.tabs.move(pendingMoveInfo.tabId, { index: 0 });
+
         } catch (error) {
             // The tab might have been closed before the move operation.
             console.error(`Error moving tab ${pendingMoveInfo.tabId}:`, error);
@@ -1007,9 +1005,10 @@ function endCycle() {
             }
             tabHistory.splice(1, 0, cycleState.originalTabId);
 
-            if (isMouseInsidePage) {
+            if (shouldReorderTab(tabs[0])) {
                 startMoveTimer(finalTabId, reorderDelay);
             }
+
         }
         cycleState = { active: false, timeoutId: null, originalTabId: null, currentIndex: 0 };
     });
@@ -1120,7 +1119,8 @@ function revertAllTabTitlesAndCleanUp() {
 // Stores the pristine, original title for a tab if it hasn't been stored yet.
 // This function is the gatekeeper that prevents state corruption.
 function setOriginalTitle(tabId, title) {
-    if (!tabOriginalTitles.has(tabId)) {
+    const canRefreshBaseline = !pickModeTimeoutId && !areTimersVisible;
+    if (!tabOriginalTitles.has(tabId) || canRefreshBaseline) {
         // Clean the title of any existing prefixes from previous sessions or errors
         // before storing it as the "original".
         // This regex is now more specific to avoid mangling legitimate titles like [PROJ-123].
@@ -1134,6 +1134,7 @@ function setOriginalTitle(tabId, title) {
         tabOriginalTitles.set(tabId, cleanedTitle);
     }
 }
+
 
 function isUrlRestricted(url) {
     if (!url) return true;
@@ -1151,7 +1152,15 @@ function isTabPinned(tab) {
     return tab.pinned || pinnedTabs.includes(tab.id);
 }
 
+function shouldReorderTab(tab) {
+    return !!tab &&
+        isMouseInsidePage &&
+        !isUrlRestricted(tab.url) &&
+        !isTabPinned(tab);
+}
+
 function updateTabTitle(tabId, shouldBePinned) {
+
     chrome.tabs.get(tabId, (tab) => {
         if (chrome.runtime.lastError || !tab || isUrlRestricted(tab.url)) {
             return;
