@@ -97,6 +97,7 @@ To prevent a tab from being automatically reordered or closed by bulk actions, y
 *   **`move-tab-right`**: Move the current tab one position to the right.
 *   **`move-tab-to-end`**: Move the current tab to the last position.
 *   **`reopen-last-closed-tab`**: Restores the most recently closed tab or window.
+*   **`reopen-all-closed-tabs`**: Reopens the full recently-closed stack until there is nothing left to restore.
 *   **`close-all-preceding-tabs`**: Closes all tabs to the left of the current tab.
 *   **`close-all-following-tabs`**: Closes all tabs to the right of the current tab.
 *   **`close-all-except-current`**: Closes all other tabs in the window.

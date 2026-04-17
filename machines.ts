@@ -565,6 +565,9 @@ export const createBackgroundMachine = (overrides: Partial<BackgroundContext> = 
                 case "reopen-last-closed-tab":
                     this.reopenLastClosedTab();
                     break;
+                case "reopen-all-closed-tabs":
+                    this.reopenAllClosedTabs();
+                    break;
                 case "close-all-preceding-tabs":
                     this.closeAllPrecedingTabs();
                     break;
@@ -1032,6 +1035,21 @@ export const createBackgroundMachine = (overrides: Partial<BackgroundContext> = 
                 }
             });
             return this;
+        },
+        async reopenAllClosedTabs() {
+            while (true) {
+                const sessions = await chrome.sessions.getRecentlyClosed({ maxResults: 1 });
+                if (!sessions || sessions.length === 0) {
+                    return this;
+                }
+
+                const lastClosedSession = sessions[0];
+                if (!lastClosedSession?.sessionId || (!lastClosedSession.tab && !lastClosedSession.window)) {
+                    return this;
+                }
+
+                await chrome.sessions.restore(lastClosedSession.sessionId);
+            }
         },
         getNextCycleTabIndex(currentIndex: number, direction: "backward" | "forward", history: number[], originalTabId: number | null) {
             if (history.length < 2) return currentIndex;

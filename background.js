@@ -429,6 +429,9 @@ function handleCommand(command) {
         case 'reopen-last-closed-tab':
             reopenLastClosedTab();
             break;
+        case 'reopen-all-closed-tabs':
+            reopenAllClosedTabs();
+            break;
         case 'close-all-preceding-tabs':
             closeAllPrecedingTabs();
             break;
@@ -1051,6 +1054,22 @@ function reopenLastClosedTab() {
             }
         }
     });
+}
+
+async function reopenAllClosedTabs() {
+    while (true) {
+        const sessions = await chrome.sessions.getRecentlyClosed({ maxResults: 1 });
+        if (!sessions || sessions.length === 0) {
+            return;
+        }
+
+        const lastClosedSession = sessions[0];
+        if (!lastClosedSession?.sessionId || (!lastClosedSession.tab && !lastClosedSession.window)) {
+            return;
+        }
+
+        await chrome.sessions.restore(lastClosedSession.sessionId);
+    }
 }
 
 function getNextCycleTabIndex(currentIndex, direction, history, originalTabId) {

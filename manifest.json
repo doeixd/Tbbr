@@ -122,6 +122,10 @@
         "description": "Reopen the last closed tab",
         "global": true
     },
+    "reopen-all-closed-tabs": {
+        "description": "Reopen all recently closed tabs and windows",
+        "global": true
+    },
     "close-all-preceding-tabs": {
       "description": "Close all tabs to the left of the current tab",
       "global": true

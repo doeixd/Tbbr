@@ -21,6 +21,10 @@ type ChromeStub = {
     notifications: {
         create: ReturnType<typeof vi.fn>;
     };
+    sessions: {
+        getRecentlyClosed: ReturnType<typeof vi.fn>;
+        restore: ReturnType<typeof vi.fn>;
+    };
     runtime: {
         lastError?: unknown;
     };
@@ -45,6 +49,10 @@ const createChromeStub = (): ChromeStub => ({
     },
     notifications: {
         create: vi.fn()
+    },
+    sessions: {
+        getRecentlyClosed: vi.fn(),
+        restore: vi.fn().mockResolvedValue(undefined)
     },
     runtime: {}
 });
@@ -149,5 +157,20 @@ describe("machines", () => {
         await machine.closeOldTabs();
 
         expect(chromeStub.tabs.remove).not.toHaveBeenCalled();
+    });
+
+    it("reopens all recently closed sessions until the stack is empty", async () => {
+        const machine = createBackgroundMachine();
+
+        chromeStub.sessions.getRecentlyClosed
+            .mockResolvedValueOnce([{ sessionId: "tab-1", tab: { sessionId: "tab-1" } }])
+            .mockResolvedValueOnce([{ sessionId: "window-1", window: { sessionId: "window-1" } }])
+            .mockResolvedValueOnce([]);
+
+        await machine.reopenAllClosedTabs();
+
+        expect(chromeStub.sessions.restore).toHaveBeenCalledTimes(2);
+        expect(chromeStub.sessions.restore).toHaveBeenNthCalledWith(1, "tab-1");
+        expect(chromeStub.sessions.restore).toHaveBeenNthCalledWith(2, "window-1");
     });
 });
