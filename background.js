@@ -681,9 +681,11 @@ function startPickMode(isCloseMode) {
             // Inject a script that prepends the letter.
             chrome.scripting.executeScript({
                 func: function(prefix, currentTitle) {
-                    // It's possible the title was already changed by another feature (e.g. timers).
-                    // Prepend to the current title to stack prefixes correctly.
-                    document.title = prefix + ': ' + currentTitle;
+                    const PICK_MODE_BASE_TITLE_ATTRIBUTE = 'data-tbbr-pick-base-title';
+                    const root = document.documentElement;
+                    const baseTitle = root?.getAttribute(PICK_MODE_BASE_TITLE_ATTRIBUTE) ?? currentTitle;
+                    root?.setAttribute(PICK_MODE_BASE_TITLE_ATTRIBUTE, baseTitle);
+                    document.title = prefix + ': ' + baseTitle;
                 },
                 args: [titlePrefix, tab.title],
                 target: { tabId: tab.id, allFrames: true }
@@ -749,6 +751,10 @@ function handlePickModeKeyPress(key, shiftKey) {
 const politeListener = function(listOfLetters) {
     const ELEMENT_ID = 'tbbr-focus-element';
     const FOCUS_GUARD_INTERVAL_MS = 150;
+    const PICK_MODE_BASE_TITLE_ATTRIBUTE = 'data-tbbr-pick-base-title';
+    const clearPickModeTitleState = () => {
+        document.documentElement?.removeAttribute(PICK_MODE_BASE_TITLE_ATTRIBUTE);
+    };
     const focusHiddenElement = () => {
         const focusElement = document.getElementById(ELEMENT_ID);
         if (focusElement && document.activeElement !== focusElement) {
@@ -777,6 +783,7 @@ const politeListener = function(listOfLetters) {
         if (focusElement) {
             focusElement.remove();
         }
+        clearPickModeTitleState();
     };
     cleanup();
     const focusElement = document.createElement('input');
@@ -813,6 +820,10 @@ const politeListener = function(listOfLetters) {
 
 // Content script for robust listener (inactive tabs)
 const robustListener = function(listOfLetters) {
+    const PICK_MODE_BASE_TITLE_ATTRIBUTE = 'data-tbbr-pick-base-title';
+    const clearPickModeTitleState = () => {
+        document.documentElement?.removeAttribute(PICK_MODE_BASE_TITLE_ATTRIBUTE);
+    };
     const cleanup = () => {
         if (window.pickModeKeyDownHandler) {
             window.removeEventListener('keydown', window.pickModeKeyDownHandler, true);
@@ -822,6 +833,7 @@ const robustListener = function(listOfLetters) {
             chrome.runtime.onMessage.removeListener(window.pickModeCleanupHandler);
             delete window.pickModeCleanupHandler;
         }
+        clearPickModeTitleState();
     };
     cleanup();
     window.pickModeKeyDownHandler = (e) => {

@@ -784,7 +784,11 @@ export const createBackgroundMachine = (overrides: Partial<BackgroundContext> = 
 
                     chrome.scripting.executeScript({
                         func: function (prefix: string, currentTitle: string) {
-                            document.title = prefix + ": " + currentTitle;
+                            const PICK_MODE_BASE_TITLE_ATTRIBUTE = "data-tbbr-pick-base-title";
+                            const root = document.documentElement;
+                            const baseTitle = root?.getAttribute(PICK_MODE_BASE_TITLE_ATTRIBUTE) ?? currentTitle;
+                            root?.setAttribute(PICK_MODE_BASE_TITLE_ATTRIBUTE, baseTitle);
+                            document.title = prefix + ": " + baseTitle;
                         },
                         args: [titlePrefix, tab.title],
                         target: { tabId: tab.id, allFrames: true }
@@ -1368,6 +1372,10 @@ export const createBackgroundActor = (overrides: Partial<BackgroundContext> = {}
 const politeListener = function (letters: string[]) {
     const ELEMENT_ID = "tbbr-focus-element";
     const FOCUS_GUARD_INTERVAL_MS = 150;
+    const PICK_MODE_BASE_TITLE_ATTRIBUTE = "data-tbbr-pick-base-title";
+    const clearPickModeTitleState = () => {
+        document.documentElement?.removeAttribute(PICK_MODE_BASE_TITLE_ATTRIBUTE);
+    };
     const focusHiddenElement = () => {
         const focusElement = document.getElementById(ELEMENT_ID) as HTMLInputElement | null;
         if (focusElement && document.activeElement !== focusElement) {
@@ -1396,6 +1404,7 @@ const politeListener = function (letters: string[]) {
         if (focusElement) {
             focusElement.remove();
         }
+        clearPickModeTitleState();
     };
     cleanup();
     const focusElement = document.createElement("input");
@@ -1431,6 +1440,10 @@ const politeListener = function (letters: string[]) {
 };
 
 const robustListener = function (letters: string[]) {
+    const PICK_MODE_BASE_TITLE_ATTRIBUTE = "data-tbbr-pick-base-title";
+    const clearPickModeTitleState = () => {
+        document.documentElement?.removeAttribute(PICK_MODE_BASE_TITLE_ATTRIBUTE);
+    };
     const cleanup = () => {
         if ((window as any).pickModeKeyDownHandler) {
             window.removeEventListener("keydown", (window as any).pickModeKeyDownHandler, true);
@@ -1440,6 +1453,7 @@ const robustListener = function (letters: string[]) {
             chrome.runtime.onMessage.removeListener((window as any).pickModeCleanupHandler);
             delete (window as any).pickModeCleanupHandler;
         }
+        clearPickModeTitleState();
     };
     cleanup();
     (window as any).pickModeKeyDownHandler = (e: KeyboardEvent) => {
