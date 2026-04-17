@@ -1,0 +1,14 @@
+{
+  "name": "tbbr",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@doeixd/machine": "^1.0.3"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.1"
+  }
+}

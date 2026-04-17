@@ -2,8 +2,6 @@
 
 Tbbr is a Chrome extension for sane tab management. It's designed to keep your current work front-and-center and reduce tab clutter. Best used in conjunction with [Vimium C](https://github.com/gdh1995/vimium-c).
 
-I hacked this together and don't recommend you using this.
-
 ## Installation
 
 ### Linux/macOS

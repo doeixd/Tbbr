@@ -5,6 +5,10 @@ type ChromeStub = {
     tabs: {
         move: ReturnType<typeof vi.fn>;
         get: ReturnType<typeof vi.fn>;
+        query: ReturnType<typeof vi.fn>;
+        update: ReturnType<typeof vi.fn>;
+        sendMessage: ReturnType<typeof vi.fn>;
+        remove: ReturnType<typeof vi.fn>;
     };
     storage: {
         local: { set: ReturnType<typeof vi.fn> };
@@ -14,12 +18,22 @@ type ChromeStub = {
         create: ReturnType<typeof vi.fn>;
         clear: ReturnType<typeof vi.fn>;
     };
+    notifications: {
+        create: ReturnType<typeof vi.fn>;
+    };
+    runtime: {
+        lastError?: unknown;
+    };
 };
 
 const createChromeStub = (): ChromeStub => ({
     tabs: {
         move: vi.fn().mockResolvedValue(undefined),
-        get: vi.fn().mockResolvedValue(undefined)
+        get: vi.fn().mockResolvedValue(undefined),
+        query: vi.fn().mockResolvedValue([]),
+        update: vi.fn(),
+        sendMessage: vi.fn(),
+        remove: vi.fn().mockResolvedValue(undefined)
     },
     storage: {
         local: { set: vi.fn() },
@@ -28,7 +42,11 @@ const createChromeStub = (): ChromeStub => ({
     alarms: {
         create: vi.fn(),
         clear: vi.fn()
-    }
+    },
+    notifications: {
+        create: vi.fn()
+    },
+    runtime: {}
 });
 
 describe("machines", () => {
@@ -60,6 +78,16 @@ describe("machines", () => {
         expect(chromeStub.tabs.move).toHaveBeenCalledWith(2, { index: 0 });
     });
 
+    it("tracks Edge new tab pages too", async () => {
+        const machine = createBackgroundMachine();
+        const tab = { id: 7, pendingUrl: "edge://newtab/", url: "edge://newtab/", pinned: false };
+
+        await machine.tabCreated(tab as any);
+
+        expect(machine.context.newTabIds.has(7)).toBe(true);
+        expect(chromeStub.tabs.move).toHaveBeenCalledWith(7, { index: 0 });
+    });
+
     it("does not move restricted tabs", async () => {
         vi.useFakeTimers();
         chromeStub.tabs.get.mockResolvedValue({ id: 3, url: "chrome://newtab/", pinned: false });
@@ -71,5 +99,55 @@ describe("machines", () => {
 
         expect(chromeStub.tabs.move).not.toHaveBeenCalled();
         vi.useRealTimers();
+    });
+
+    it("does not refresh last-activated on background tab load completion", async () => {
+        const machine = createBackgroundMachine({
+            tabLastActivated: { 4: 100 }
+        });
+        const before = machine.context.tabLastActivated[4];
+
+        await machine.tabUpdated(4, { status: "complete" }, { id: 4, active: false, url: "https://example.com", pinned: false } as any);
+
+        expect(machine.context.tabLastActivated[4]).toBe(before);
+    });
+
+    it("only reorders active tabs", () => {
+        const machine = createBackgroundMachine({ mouse: new MouseTracker(true) });
+
+        expect(machine.shouldReorderTab({ id: 5, active: false, url: "https://example.com", pinned: false })).toBe(false);
+        expect(machine.shouldReorderTab({ id: 5, active: true, url: "https://example.com", pinned: false })).toBe(true);
+    });
+
+    it("uses only current-window history for go-to-last-tab", async () => {
+        chromeStub.tabs.query.mockResolvedValue([{ id: 11 }, { id: 12 }]);
+        const machine = createBackgroundMachine({
+            tabHistory: [12, 99, 11]
+        });
+
+        await machine.goToLastTab();
+
+        expect(chromeStub.tabs.update).toHaveBeenCalledWith(11, { active: true });
+        expect(chromeStub.tabs.update).not.toHaveBeenCalledWith(99, { active: true });
+    });
+
+    it("re-checks full auto-close eligibility before removing a tab", async () => {
+        const machine = createBackgroundMachine({
+            autoClose: (createBackgroundMachine().context.autoClose as any).enable(),
+            autoCloseWhitelist: [],
+            tabLastActivated: { 21: 0 }
+        });
+
+        vi.spyOn(machine, "canAutoCloseTab")
+            .mockReturnValueOnce(true)
+            .mockReturnValueOnce(false);
+
+        chromeStub.tabs.query.mockResolvedValue([{ id: 21, active: false, audible: false, pinned: false, url: "https://example.com", title: "Example" }]);
+        chromeStub.tabs.sendMessage.mockImplementation((_tabId: number, _message: any, callback: (response: any) => void) => callback({ hasUnsavedChanges: false }));
+        chromeStub.tabs.get.mockResolvedValue({ id: 21, active: false, audible: false, pinned: true, url: "https://example.com", title: "Example" });
+
+        await machine.closeOldTabs();
+
+        expect(chromeStub.tabs.remove).not.toHaveBeenCalled();
     });
 });

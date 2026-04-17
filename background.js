@@ -21,17 +21,29 @@ let pinnedTabs = [];
 let newTabIds = new Set();
 let isMouseInsidePage = false;
 let tabMoveTimeoutId = null;
-let isActiveTimeoutId = null;
 let pickModeTimeoutId = null;
 let isClosePickMode = false;
 let areTimersVisible = false;
 let countdownIntervalId = null;
+let latestActivationRequestId = 0;
+let currentActivationTimeout = {
+    requestId: 0,
+    tabId: null,
+    timeoutId: null
+};
+let moveTimerRequestId = 0;
+let timerUpdateState = {
+    running: false,
+    rerunRequested: false
+};
+let timerUpdateGeneration = 0;
 let cycleState = {
     active: false,
     timeoutId: null,
     originalTabId: null,
     currentIndex: 0
 };
+let isAutoClosingTabs = false;
 let pendingMoveInfo = {
     tabId: null,
     initialDuration: reorderDelay,
@@ -43,6 +55,8 @@ let pendingMoveInfo = {
 // This prevents features like Countdown Timers and Pick Mode from corrupting each other's state.
 // Map<tabId, originalTitle>
 let tabOriginalTitles = new Map();
+
+const NEW_TAB_URL_PREFIXES = ['chrome://newtab', 'edge://newtab', 'about:newtab'];
 
 
 // =================================================================================================
@@ -209,7 +223,7 @@ async function handleTabCreated(tab) {
     updateTabActivationTime(tab.id);
 
     // If the new tab is the New Tab Page, track it.
-    if (tab.pendingUrl === 'chrome://newtab/' || tab.url === 'chrome://newtab/') {
+    if (isNewTabPageUrl(tab.pendingUrl) || isNewTabPageUrl(tab.url)) {
         newTabIds.add(tab.id);
 
         if (!isTabPinned(tab)) {
@@ -237,11 +251,29 @@ function handleTabRemoved(tabId, removeInfo) {
 
     // Clean up the original title from our map to prevent memory leaks.
     tabOriginalTitles.delete(tabId);
+
+    if (currentActivationTimeout.tabId === tabId && currentActivationTimeout.timeoutId) {
+        clearTimeout(currentActivationTimeout.timeoutId);
+        currentActivationTimeout = { requestId: 0, tabId: null, timeoutId: null };
+    }
+
+    if (pendingMoveInfo.tabId === tabId) {
+        if (tabMoveTimeoutId) {
+            clearTimeout(tabMoveTimeoutId);
+            tabMoveTimeoutId = null;
+        }
+        pendingMoveInfo = { tabId: null, initialDuration: reorderDelay, startTime: 0, timePaused: 0 };
+        moveTimerRequestId++;
+    }
+
+    if (cycleState.originalTabId === tabId || tabHistory[cycleState.currentIndex] === tabId) {
+        endCycle();
+    }
 }
 
 async function handleTabUpdated(tabId, changeInfo, tab) {
     // If a tracked "New Tab Page" navigates to a new URL, move it to the front.
-    if (newTabIds.has(tabId) && changeInfo.url && !changeInfo.url.startsWith('chrome://newtab')) {
+    if (newTabIds.has(tabId) && changeInfo.url && !isNewTabPageUrl(changeInfo.url)) {
         if (!isTabPinned(tab)) {
             try {
                 // This is now a regular tab, move it to the front.
@@ -278,18 +310,24 @@ async function handleTabUpdated(tabId, changeInfo, tab) {
         });
     }
 
-    if (changeInfo.status === 'complete') {
+    if (changeInfo.status === 'complete' && tab.active) {
         updateTabActivationTime(tabId);
     }
 }
 
 function finalizeTabActivation(tabId) {
+    if (cycleState.active) {
+        updateTabActivationTime(tabId);
+        return;
+    }
+
     updateTabActivationTime(tabId);
     updateTabHistory(tabId);
 
     if (tabMoveTimeoutId) {
         clearTimeout(tabMoveTimeoutId);
         tabMoveTimeoutId = null;
+        moveTimerRequestId++;
     }
 
     pendingMoveInfo = {
@@ -304,21 +342,48 @@ function finalizeTabActivation(tabId) {
     startMoveTimer(tabId, pendingMoveInfo.initialDuration);
 }
 
+async function finalizeTabActivationIfStillCurrent(tabId, requestId) {
+    if (requestId !== latestActivationRequestId) {
+        return;
+    }
+
+    try {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!activeTab || activeTab.id !== tabId) {
+            return;
+        }
+    } catch (error) {
+        return;
+    }
+
+    finalizeTabActivation(tabId);
+}
+
 function handleTabActivated(activeInfo) {
-    // Clear any previously pending activation timer
-    if (isActiveTimeoutId) {
-        clearTimeout(isActiveTimeoutId);
-        isActiveTimeoutId = null;
+    latestActivationRequestId += 1;
+    const requestId = latestActivationRequestId;
+
+    if (currentActivationTimeout.timeoutId) {
+        clearTimeout(currentActivationTimeout.timeoutId);
+        currentActivationTimeout = { requestId: 0, tabId: null, timeoutId: null };
     }
 
     // If delay is 0, activate immediately. Otherwise, set a timeout.
     if (isActiveDelay === 0) {
-        finalizeTabActivation(activeInfo.tabId);
+        finalizeTabActivationIfStillCurrent(activeInfo.tabId, requestId);
     } else {
-        isActiveTimeoutId = setTimeout(() => {
-            finalizeTabActivation(activeInfo.tabId);
-            isActiveTimeoutId = null;
+        const timeoutId = setTimeout(() => {
+            finalizeTabActivationIfStillCurrent(activeInfo.tabId, requestId);
+            if (currentActivationTimeout.requestId === requestId) {
+                currentActivationTimeout = { requestId: 0, tabId: null, timeoutId: null };
+            }
         }, isActiveDelay);
+
+        currentActivationTimeout = {
+            requestId,
+            tabId: activeInfo.tabId,
+            timeoutId
+        };
     }
 }
 
@@ -420,6 +485,7 @@ function handleMouseLeave() {
 
         clearTimeout(tabMoveTimeoutId);
         tabMoveTimeoutId = null;
+        moveTimerRequestId++;
 
         if (remainingDuration > 0) {
             pendingMoveInfo.initialDuration = remainingDuration;
@@ -435,7 +501,11 @@ function handleMouseEnter() {
     isMouseInsidePage = true;
     // If a tab move is pending, has time remaining, and was explicitly paused, resume it.
     if (pendingMoveInfo.tabId && pendingMoveInfo.initialDuration > 0 && pendingMoveInfo.timePaused > 0) {
-        startMoveTimer(pendingMoveInfo.tabId, pendingMoveInfo.initialDuration);
+        chrome.tabs.get(pendingMoveInfo.tabId).then((tab) => {
+            if (tab && tab.active) {
+                startMoveTimer(pendingMoveInfo.tabId, pendingMoveInfo.initialDuration);
+            }
+        }).catch(() => {});
     }
 }
 
@@ -457,26 +527,36 @@ async function startMoveTimer(tabId, duration) {
         clearTimeout(tabMoveTimeoutId);
     }
 
+    const requestId = ++moveTimerRequestId;
+
     pendingMoveInfo.tabId = tabId;
     pendingMoveInfo.initialDuration = duration;
     pendingMoveInfo.startTime = Date.now();
     pendingMoveInfo.timePaused = 0;
 
     tabMoveTimeoutId = setTimeout(async () => {
+        if (requestId !== moveTimerRequestId || pendingMoveInfo.tabId !== tabId) {
+            return;
+        }
+
         try {
-            const tab = await chrome.tabs.get(pendingMoveInfo.tabId);
+            const tab = await chrome.tabs.get(tabId);
             if (!shouldReorderTab(tab)) {
                 return;
             }
-            await chrome.tabs.move(pendingMoveInfo.tabId, { index: 0 });
+            await chrome.tabs.move(tabId, { index: 0 });
 
         } catch (error) {
             // The tab might have been closed before the move operation.
-            console.error(`Error moving tab ${pendingMoveInfo.tabId}:`, error);
+            console.error(`Error moving tab ${tabId}:`, error);
         }
 
+        if (requestId !== moveTimerRequestId) {
+            return;
+        }
 
         tabMoveTimeoutId = null;
+        pendingMoveInfo.tabId = null;
         pendingMoveInfo.startTime = 0;
         pendingMoveInfo.timePaused = 0;
         pendingMoveInfo.initialDuration = 0;
@@ -489,90 +569,72 @@ async function startMoveTimer(tabId, duration) {
 // =================================================================================================
 
 async function closeOldTabs() {
-    if (!autoCloseEnabled) {
+    if (!autoCloseEnabled || isAutoClosingTabs) {
         return;
     }
 
-    const tabs = await chrome.tabs.query({ currentWindow: true });
-    const now = Date.now();
-    const autoCloseTimeMs = autoCloseTime * 60 * 1000;
+    isAutoClosingTabs = true;
 
-    const closingPromises = tabs.map(tab => {
-        return new Promise(async (resolve) => {
-            // Do not close tabs whose domain is on the whitelist.
-            if (tab.url) {
-                if (tab.url.startsWith('http:') || tab.url.startsWith('https:')) {
+    try {
+        const tabs = await chrome.tabs.query({ currentWindow: true });
+        const now = Date.now();
+        const autoCloseTimeMs = autoCloseTime * 60 * 1000;
+
+        const closingPromises = tabs.map(tab => {
+            return new Promise(async (resolve) => {
+                let lastActivated = tabLastActivated[tab.id];
+                if (!lastActivated) {
+                    updateTabActivationTime(tab.id);
+                    return resolve(false);
+                }
+
+                if (canAutoCloseTab(tab, now, autoCloseTimeMs)) {
                     try {
-                        const tabUrl = new URL(tab.url);
-                        if (autoCloseWhitelist.includes(tabUrl.hostname)) {
-                            return resolve(false);
+                        const response = await new Promise((resolve, reject) => {
+                            chrome.tabs.sendMessage(tab.id, { type: 'checkUnsaved' }, response => {
+                                if (chrome.runtime.lastError) {
+                                    // Content script did not respond. Assume there are unsaved changes.
+                                    return resolve({ hasUnsavedChanges: true });
+                                }
+                                resolve(response);
+                            });
+                        });
+
+                        if (response && !response.hasUnsavedChanges) {
+                            // Final check: re-fetch the tab and ensure it is still eligible to close.
+                            const currentTabState = await chrome.tabs.get(tab.id);
+                            if (canAutoCloseTab(currentTabState, now, autoCloseTimeMs)) {
+                                await chrome.tabs.remove(tab.id);
+                                return resolve(tab); // Resolve with the tab object for the notification
+                            }
                         }
                     } catch (e) {
-                        // Should not happen, but ignore if it does.
-                    }
-                } else if (tab.url.startsWith('file:')) {
-                    // For file URLs, check the full URL against the whitelist.
-                    if (autoCloseWhitelist.includes(tab.url)) {
+                        // An error occurred, so we'll play it safe and not close the tab.
                         return resolve(false);
                     }
                 }
-            }
 
-            if (isTabPinned(tab) || tab.audible) {
                 return resolve(false);
-            }
-
-            let lastActivated = tabLastActivated[tab.id];
-            if (!lastActivated) {
-                updateTabActivationTime(tab.id);
-                return resolve(false);
-            }
-
-            if (now - lastActivated > autoCloseTimeMs) {
-                try {
-                    const response = await new Promise((resolve, reject) => {
-                        chrome.tabs.sendMessage(tab.id, { type: 'checkUnsaved' }, response => {
-                            if (chrome.runtime.lastError) {
-                                // Content script did not respond. Assume there are unsaved changes.
-                                return resolve({ hasUnsavedChanges: true });
-                            }
-                            resolve(response);
-                        });
-                    });
-
-                    if (response && !response.hasUnsavedChanges) {
-                        // Final check: Re-fetch the tab's state to ensure it hasn't become active
-                        // while we were waiting for the content script to respond.
-                        const currentTabState = await chrome.tabs.get(tab.id);
-                        if (!currentTabState.active) {
-                            await chrome.tabs.remove(tab.id);
-                            return resolve(tab); // Resolve with the tab object for the notification
-                        }
-                    }
-                } catch (e) {
-                    // An error occurred, so we'll play it safe and not close the tab.
-                    return resolve(false);
-                }
-            }
-
-            return resolve(false);
+            });
         });
-    });
 
-    const results = await Promise.all(closingPromises);
-    const closedTabs = results.filter(Boolean);
+        const results = await Promise.all(closingPromises);
+        const closedTabs = results.filter(Boolean);
 
-    if (closedTabs.length > 0) {
-        const notificationItems = closedTabs.map(tab => ({ title: tab.title, message: tab.url || 'No URL available' }));
-        const title = `Closed ${closedTabs.length} old tab(s)`;
+        if (closedTabs.length > 0) {
+            const notificationItems = closedTabs.map(tab => ({ title: tab.title, message: tab.url || 'No URL available' }));
+            const title = `Closed ${closedTabs.length} old tab(s)`;
 
-        chrome.notifications.create({
-            type: 'list',
-            iconUrl: 'icon128.png',
-            title: title,
-            message: title, // Message is required but not shown for list notifications
-            items: notificationItems
-        });
+            chrome.notifications.create({
+                type: 'list',
+                iconUrl: 'icon128.png',
+                title: title,
+                message: title, // Message is required but not shown for list notifications
+                items: notificationItems
+            });
+        }
+    } finally {
+        isAutoClosingTabs = false;
     }
 }
 
@@ -584,6 +646,7 @@ function startPickMode(isCloseMode) {
     if (tabMoveTimeoutId) {
         clearTimeout(tabMoveTimeoutId);
         tabMoveTimeoutId = null;
+        moveTimerRequestId++;
     }
     pendingMoveInfo = { tabId: null, initialDuration: reorderDelay, startTime: 0, timePaused: 0 };
 
@@ -649,6 +712,7 @@ function handlePickModeKeyPress(key, shiftKey) {
     if (tabMoveTimeoutId) {
         clearTimeout(tabMoveTimeoutId);
         tabMoveTimeoutId = null;
+        moveTimerRequestId++;
     }
     pendingMoveInfo = { tabId: null, initialDuration: reorderDelay, startTime: 0, timePaused: 0 };
 
@@ -771,24 +835,63 @@ function toggleCountdownTimers() {
 
 function startAllCountdownTimers() {
     if (countdownIntervalId) clearInterval(countdownIntervalId);
-    updateAllTabTimers(); // Run once immediately
-    countdownIntervalId = setInterval(updateAllTabTimers, 1000);
+    timerUpdateGeneration += 1;
+    queueTimerRefresh(); // Run once immediately
+    countdownIntervalId = setInterval(queueTimerRefresh, 1000);
 }
 
 function stopAllCountdownTimers() {
     if (countdownIntervalId) clearInterval(countdownIntervalId);
     countdownIntervalId = null;
+    timerUpdateGeneration += 1;
+    timerUpdateState.running = false;
+    timerUpdateState.rerunRequested = false;
     revertAllTabTitlesAndCleanUp();
 }
 
+function queueTimerRefresh() {
+    if (!areTimersVisible) {
+        return;
+    }
 
-async function updateAllTabTimers() {
-    if (!areTimersVisible) return;
+    if (timerUpdateState.running) {
+        timerUpdateState.rerunRequested = true;
+        return;
+    }
+
+    runTimerRefreshLoop();
+}
+
+async function runTimerRefreshLoop() {
+    const generation = timerUpdateGeneration;
+    timerUpdateState.running = true;
+
+    try {
+        do {
+            timerUpdateState.rerunRequested = false;
+            await updateAllTabTimers(generation);
+        } while (timerUpdateState.rerunRequested && areTimersVisible && generation === timerUpdateGeneration);
+    } finally {
+        const shouldRestart = areTimersVisible && (timerUpdateState.rerunRequested || generation !== timerUpdateGeneration);
+        timerUpdateState.running = false;
+        if (shouldRestart) {
+            queueTimerRefresh();
+        }
+    }
+}
+
+
+async function updateAllTabTimers(generation = timerUpdateGeneration) {
+    if (!areTimersVisible || generation !== timerUpdateGeneration) return;
 
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const allTabs = await chrome.tabs.query({ currentWindow: true });
 
     for (const tab of allTabs) {
+        if (!areTimersVisible || generation !== timerUpdateGeneration) {
+            return;
+        }
+
         if (isUrlRestricted(tab.url)) continue;
 
         const lastActivated = tabLastActivated[tab.id];
@@ -924,9 +1027,18 @@ function goToLastTabInList() {
     });
 }
 
-function goToLastTab() {
-    if (tabHistory.length > 1) {
-        chrome.tabs.update(tabHistory[1], { active: true });
+async function getCurrentWindowTabHistory() {
+    const tabs = await chrome.tabs.query({ currentWindow: true });
+    const currentWindowTabIds = new Set(tabs.map(tab => tab.id));
+    const history = tabHistory.filter(tabId => currentWindowTabIds.has(tabId));
+
+    return { history };
+}
+
+async function goToLastTab() {
+    const { history } = await getCurrentWindowTabHistory();
+    if (history.length > 1) {
+        chrome.tabs.update(history[1], { active: true });
     }
 }
 
@@ -959,8 +1071,9 @@ function getNextCycleTabIndex(currentIndex, direction, history, originalTabId) {
     return (currentIndex + increment + history.length) % history.length;
 }
 
-function cycleThroughTabs(direction = 'backward') {
-    if (tabHistory.length < 2) return;
+async function cycleThroughTabs(direction = 'backward') {
+    const { history } = await getCurrentWindowTabHistory();
+    if (history.length < 2) return;
 
     if (!cycleState.active) {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -968,21 +1081,21 @@ function cycleThroughTabs(direction = 'backward') {
                 cycleState.originalTabId = tabs[0].id;
                 cycleState.active = true;
 
-                const startIndex = tabHistory.indexOf(cycleState.originalTabId);
+                const startIndex = history.indexOf(cycleState.originalTabId);
                 const validStartIndex = startIndex !== -1 ? startIndex : 0;
 
-                cycleState.currentIndex = getNextCycleTabIndex(validStartIndex, direction, tabHistory, cycleState.originalTabId);
+                cycleState.currentIndex = getNextCycleTabIndex(validStartIndex, direction, history, cycleState.originalTabId);
 
-                chrome.tabs.update(tabHistory[cycleState.currentIndex], { active: true });
+                chrome.tabs.update(history[cycleState.currentIndex], { active: true });
                 cycleState.timeoutId = setTimeout(endCycle, cycleTimeout);
             }
         });
     } else {
         clearTimeout(cycleState.timeoutId);
 
-        cycleState.currentIndex = getNextCycleTabIndex(cycleState.currentIndex, direction, tabHistory, cycleState.originalTabId);
+        cycleState.currentIndex = getNextCycleTabIndex(cycleState.currentIndex, direction, history, cycleState.originalTabId);
 
-        chrome.tabs.update(tabHistory[cycleState.currentIndex], { active: true });
+        chrome.tabs.update(history[cycleState.currentIndex], { active: true });
         cycleState.timeoutId = setTimeout(endCycle, cycleTimeout);
     }
 }
@@ -990,27 +1103,40 @@ function cycleThroughTabs(direction = 'backward') {
 function endCycle() {
     if (!cycleState.active) return;
 
+    if (cycleState.timeoutId) {
+        clearTimeout(cycleState.timeoutId);
+    }
+
     if (tabMoveTimeoutId) {
         clearTimeout(tabMoveTimeoutId);
         tabMoveTimeoutId = null;
+        moveTimerRequestId++;
     }
 
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs.length > 0) {
+        if (!tabs.length) {
+            cycleState = { active: false, timeoutId: null, originalTabId: null, currentIndex: 0 };
+            return;
+        }
+
+        getCurrentWindowTabHistory().then(({ history }) => {
             const finalTabId = tabs[0].id;
             updateTabHistory(finalTabId);
-            const originalIndex = tabHistory.indexOf(cycleState.originalTabId);
-            if (originalIndex > -1) {
-                tabHistory.splice(originalIndex, 1);
+
+            if (history.includes(cycleState.originalTabId)) {
+                const originalIndex = tabHistory.indexOf(cycleState.originalTabId);
+                if (originalIndex > -1) {
+                    tabHistory.splice(originalIndex, 1);
+                    tabHistory.splice(1, 0, cycleState.originalTabId);
+                }
             }
-            tabHistory.splice(1, 0, cycleState.originalTabId);
 
             if (shouldReorderTab(tabs[0])) {
                 startMoveTimer(finalTabId, reorderDelay);
             }
-
-        }
-        cycleState = { active: false, timeoutId: null, originalTabId: null, currentIndex: 0 };
+        }).finally(() => {
+            cycleState = { active: false, timeoutId: null, originalTabId: null, currentIndex: 0 };
+        });
     });
 }
 
@@ -1044,6 +1170,8 @@ function togglePin() {
             if (tabMoveTimeoutId && pendingMoveInfo.tabId === tabId) {
                 clearTimeout(tabMoveTimeoutId);
                 tabMoveTimeoutId = null;
+                moveTimerRequestId++;
+                pendingMoveInfo = { tabId: null, initialDuration: reorderDelay, startTime: 0, timePaused: 0 };
             }
         }
     });
@@ -1135,6 +1263,10 @@ function setOriginalTitle(tabId, title) {
     }
 }
 
+function isNewTabPageUrl(url) {
+    if (!url) return false;
+    return NEW_TAB_URL_PREFIXES.some(prefix => url.startsWith(prefix));
+}
 
 function isUrlRestricted(url) {
     if (!url) return true;
@@ -1154,9 +1286,40 @@ function isTabPinned(tab) {
 
 function shouldReorderTab(tab) {
     return !!tab &&
+        tab.active &&
         isMouseInsidePage &&
         !isUrlRestricted(tab.url) &&
         !isTabPinned(tab);
+}
+
+function isWhitelistedForAutoClose(tab) {
+    if (!tab?.url) {
+        return false;
+    }
+
+    if (tab.url.startsWith('http:') || tab.url.startsWith('https:')) {
+        try {
+            const tabUrl = new URL(tab.url);
+            return autoCloseWhitelist.includes(tabUrl.hostname);
+        } catch (error) {
+            return false;
+        }
+    }
+
+    if (tab.url.startsWith('file:')) {
+        return autoCloseWhitelist.includes(tab.url);
+    }
+
+    return false;
+}
+
+function canAutoCloseTab(tab, referenceTime, autoCloseTimeMs) {
+    if (!tab || tab.active || tab.audible || isTabPinned(tab) || isWhitelistedForAutoClose(tab)) {
+        return false;
+    }
+
+    const lastActivated = tabLastActivated[tab.id];
+    return !!lastActivated && (referenceTime - lastActivated > autoCloseTimeMs);
 }
 
 function updateTabTitle(tabId, shouldBePinned) {

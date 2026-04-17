@@ -428,7 +428,7 @@ export const createBackgroundMachine = (overrides: Partial<BackgroundContext> = 
         async tabCreated(tab: any) {
             this.updateTabActivationTime(tab.id);
 
-            if (tab.pendingUrl === "chrome://newtab/" || tab.url === "chrome://newtab/") {
+            if (this.isNewTabPageUrl(tab.pendingUrl) || this.isNewTabPageUrl(tab.url)) {
                 this.context.newTabIds.add(tab.id);
 
                 if (!this.isTabPinned(tab)) {
@@ -456,7 +456,7 @@ export const createBackgroundMachine = (overrides: Partial<BackgroundContext> = 
             return this;
         },
         async tabUpdated(tabId: number, changeInfo: any, tab: any) {
-            if (this.context.newTabIds.has(tabId) && changeInfo.url && !changeInfo.url.startsWith("chrome://newtab")) {
+            if (this.context.newTabIds.has(tabId) && changeInfo.url && !this.isNewTabPageUrl(changeInfo.url)) {
                 if (!this.isTabPinned(tab)) {
                     try {
                         await chrome.tabs.move(tabId, { index: 0 });
@@ -484,7 +484,7 @@ export const createBackgroundMachine = (overrides: Partial<BackgroundContext> = 
                 });
             }
 
-            if (changeInfo.status === "complete") {
+            if (changeInfo.status === "complete" && tab.active) {
                 this.updateTabActivationTime(tabId);
             }
 
@@ -625,7 +625,13 @@ export const createBackgroundMachine = (overrides: Partial<BackgroundContext> = 
         mouseEnter() {
             this.enterMouseState();
             if (moveTimerMatch.is.paused(this.context.moveTimer) && this.context.moveTimer.context.remainingDuration > 0) {
-                this.startMoveTimer(this.context.moveTimer.context.tabId, this.context.moveTimer.context.remainingDuration);
+                chrome.tabs.get(this.context.moveTimer.context.tabId)
+                    .then((tab: any) => {
+                        if (tab && tab.active) {
+                            this.startMoveTimer(this.context.moveTimer.context.tabId, this.context.moveTimer.context.remainingDuration);
+                        }
+                    })
+                    .catch(() => {});
             }
             return this;
         },
@@ -683,34 +689,13 @@ export const createBackgroundMachine = (overrides: Partial<BackgroundContext> = 
 
             const closingPromises = tabs.map((tab: any) => {
                 return new Promise(async (resolve) => {
-                    if (tab.url) {
-                        if (tab.url.startsWith("http:") || tab.url.startsWith("https:")) {
-                            try {
-                                const tabUrl = new URL(tab.url);
-                                if (this.context.autoCloseWhitelist.includes(tabUrl.hostname)) {
-                                    return resolve(false);
-                                }
-                            } catch (e) {
-                                return resolve(false);
-                            }
-                        } else if (tab.url.startsWith("file:")) {
-                            if (this.context.autoCloseWhitelist.includes(tab.url)) {
-                                return resolve(false);
-                            }
-                        }
-                    }
-
-                    if (this.isTabPinned(tab) || tab.audible) {
-                        return resolve(false);
-                    }
-
                     const lastActivated = this.context.tabLastActivated[tab.id];
                     if (!lastActivated) {
                         this.updateTabActivationTime(tab.id);
                         return resolve(false);
                     }
 
-                    if (now - lastActivated > autoCloseTimeMs) {
+                    if (this.canAutoCloseTab(tab, now, autoCloseTimeMs)) {
                         try {
                             const response = await new Promise((resolveResponse) => {
                                 chrome.tabs.sendMessage(tab.id, { type: "checkUnsaved" }, (responseMessage: any) => {
@@ -723,7 +708,7 @@ export const createBackgroundMachine = (overrides: Partial<BackgroundContext> = 
 
                             if (response && !(response as any).hasUnsavedChanges) {
                                 const currentTabState = await chrome.tabs.get(tab.id);
-                                if (!currentTabState.active) {
+                                if (this.canAutoCloseTab(currentTabState, now, autoCloseTimeMs)) {
                                     await chrome.tabs.remove(tab.id);
                                     return resolve(tab);
                                 }
@@ -754,6 +739,13 @@ export const createBackgroundMachine = (overrides: Partial<BackgroundContext> = 
             }
 
             return this;
+        },
+        async getCurrentWindowTabHistory() {
+            const tabs = await chrome.tabs.query({ currentWindow: true });
+            const currentWindowTabIds = new Set(tabs.map((tab: any) => tab.id));
+            const history = this.context.tabHistory.filter((tabId) => currentWindowTabIds.has(tabId));
+
+            return { history };
         },
         startPickMode(isCloseMode: boolean) {
             this.resetMoveTimer();
@@ -1023,9 +1015,10 @@ export const createBackgroundMachine = (overrides: Partial<BackgroundContext> = 
             });
             return this;
         },
-        goToLastTab() {
-            if (this.context.tabHistory.length > 1) {
-                chrome.tabs.update(this.context.tabHistory[1], { active: true });
+        async goToLastTab() {
+            const { history } = await this.getCurrentWindowTabHistory();
+            if (history.length > 1) {
+                chrome.tabs.update(history[1], { active: true });
             }
             return this;
         },
@@ -1233,6 +1226,12 @@ export const createBackgroundMachine = (overrides: Partial<BackgroundContext> = 
             }
             return this;
         },
+        isNewTabPageUrl(url?: string) {
+            if (!url) return false;
+            return url.startsWith("chrome://newtab") ||
+                url.startsWith("edge://newtab") ||
+                url.startsWith("about:newtab");
+        },
         isUrlRestricted(url: string) {
             if (!url) return true;
             return url.startsWith("chrome://") ||
@@ -1248,9 +1247,38 @@ export const createBackgroundMachine = (overrides: Partial<BackgroundContext> = 
         },
         shouldReorderTab(tab: any) {
             return !!tab &&
+                tab.active &&
                 mouseMatch.is.inside(this.context.mouse) &&
                 !this.isUrlRestricted(tab.url) &&
                 !this.isTabPinned(tab);
+        },
+        isWhitelistedForAutoClose(tab: any) {
+            if (!tab?.url) {
+                return false;
+            }
+
+            if (tab.url.startsWith("http:") || tab.url.startsWith("https:")) {
+                try {
+                    const tabUrl = new URL(tab.url);
+                    return this.context.autoCloseWhitelist.includes(tabUrl.hostname);
+                } catch (error) {
+                    return false;
+                }
+            }
+
+            if (tab.url.startsWith("file:")) {
+                return this.context.autoCloseWhitelist.includes(tab.url);
+            }
+
+            return false;
+        },
+        canAutoCloseTab(tab: any, referenceTime: number, autoCloseTimeMs: number) {
+            if (!tab || tab.active || tab.audible || this.isTabPinned(tab) || this.isWhitelistedForAutoClose(tab)) {
+                return false;
+            }
+
+            const lastActivated = this.context.tabLastActivated[tab.id];
+            return !!lastActivated && (referenceTime - lastActivated > autoCloseTimeMs);
         },
         updateTabTitle(tabId: number, shouldBePinned: boolean) {
             chrome.tabs.get(tabId, (tab: any) => {

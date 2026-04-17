@@ -3,7 +3,21 @@
   "description": "Make the most recently opened tab the first tab.",
   "version": "1.2",
   "manifest_version": 3,
-  "action": {},
+  "icons": {
+    "16": "icon16.png",
+    "32": "icon32.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icon16.png",
+      "32": "icon32.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    },
+    "default_title": "Tbbr"
+  },
   "background": {
     "service_worker": "background.js"
   },
@@ -16,7 +30,8 @@
       "js": [
         "mouse_tracker.js",
         "check_unsaved.js"
-      ]
+      ],
+      "run_at": "document_start"
     }
   ],
   "permissions": [
@@ -30,9 +45,9 @@
     "sessions"
   ],
   "host_permissions": [
-    "*://*/*",
     "https://*/*",
-    "http://*/*"
+    "http://*/*",
+    "file:///*"
   ],
   "commands": {
         "focus-tab-1": {
