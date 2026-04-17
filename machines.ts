@@ -1367,7 +1367,27 @@ export const createBackgroundActor = (overrides: Partial<BackgroundContext> = {}
 
 const politeListener = function (letters: string[]) {
     const ELEMENT_ID = "tbbr-focus-element";
+    const FOCUS_GUARD_INTERVAL_MS = 150;
+    const focusHiddenElement = () => {
+        const focusElement = document.getElementById(ELEMENT_ID) as HTMLInputElement | null;
+        if (focusElement && document.activeElement !== focusElement) {
+            focusElement.focus({ preventScroll: true });
+        }
+    };
     const cleanup = () => {
+        if ((window as any).pickModeKeyDownHandler) {
+            window.removeEventListener("keydown", (window as any).pickModeKeyDownHandler, true);
+            delete (window as any).pickModeKeyDownHandler;
+        }
+        if ((window as any).pickModeFocusGuardId) {
+            clearInterval((window as any).pickModeFocusGuardId);
+            delete (window as any).pickModeFocusGuardId;
+        }
+        if ((window as any).pickModeFocusHandler) {
+            window.removeEventListener("focus", (window as any).pickModeFocusHandler, true);
+            document.removeEventListener("focusin", (window as any).pickModeFocusHandler, true);
+            delete (window as any).pickModeFocusHandler;
+        }
         if ((window as any).pickModeCleanupHandler) {
             chrome.runtime.onMessage.removeListener((window as any).pickModeCleanupHandler);
             delete (window as any).pickModeCleanupHandler;
@@ -1382,9 +1402,11 @@ const politeListener = function (letters: string[]) {
     focusElement.id = ELEMENT_ID;
     focusElement.style.cssText = "position:fixed;opacity:0;top:0;left:0;width:0;height:0;padding:0;border:0;";
     document.body.appendChild(focusElement);
-    focusElement.focus();
-    const keyDownHandler = (e: KeyboardEvent) => {
+    focusHiddenElement();
+    (window as any).pickModeKeyDownHandler = (e: KeyboardEvent) => {
+        if (document.hidden) return;
         e.stopImmediatePropagation();
+        e.preventDefault();
         if (e.key === "Escape") {
             chrome.runtime.sendMessage({ type: "cancel_pick_mode" });
             cleanup();
@@ -1393,7 +1415,13 @@ const politeListener = function (letters: string[]) {
             cleanup();
         }
     };
-    focusElement.addEventListener("keydown", keyDownHandler);
+    (window as any).pickModeFocusHandler = () => {
+        focusHiddenElement();
+    };
+    window.addEventListener("keydown", (window as any).pickModeKeyDownHandler, true);
+    window.addEventListener("focus", (window as any).pickModeFocusHandler, true);
+    document.addEventListener("focusin", (window as any).pickModeFocusHandler, true);
+    (window as any).pickModeFocusGuardId = setInterval(focusHiddenElement, FOCUS_GUARD_INTERVAL_MS);
     (window as any).pickModeCleanupHandler = (message: any) => {
         if (message && message.type === "cleanup_pick_mode") {
             cleanup();

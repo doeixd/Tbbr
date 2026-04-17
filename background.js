@@ -748,7 +748,27 @@ function handlePickModeKeyPress(key, shiftKey) {
 // Content script for polite listener (active tab)
 const politeListener = function(listOfLetters) {
     const ELEMENT_ID = 'tbbr-focus-element';
+    const FOCUS_GUARD_INTERVAL_MS = 150;
+    const focusHiddenElement = () => {
+        const focusElement = document.getElementById(ELEMENT_ID);
+        if (focusElement && document.activeElement !== focusElement) {
+            focusElement.focus({ preventScroll: true });
+        }
+    };
     const cleanup = () => {
+        if (window.pickModeKeyDownHandler) {
+            window.removeEventListener('keydown', window.pickModeKeyDownHandler, true);
+            delete window.pickModeKeyDownHandler;
+        }
+        if (window.pickModeFocusGuardId) {
+            clearInterval(window.pickModeFocusGuardId);
+            delete window.pickModeFocusGuardId;
+        }
+        if (window.pickModeFocusHandler) {
+            window.removeEventListener('focus', window.pickModeFocusHandler, true);
+            document.removeEventListener('focusin', window.pickModeFocusHandler, true);
+            delete window.pickModeFocusHandler;
+        }
         if (window.pickModeCleanupHandler) {
             chrome.runtime.onMessage.removeListener(window.pickModeCleanupHandler);
             delete window.pickModeCleanupHandler;
@@ -763,9 +783,11 @@ const politeListener = function(listOfLetters) {
     focusElement.id = ELEMENT_ID;
     focusElement.style.cssText = `position:fixed;opacity:0;top:0;left:0;width:0;height:0;padding:0;border:0;`;
     document.body.appendChild(focusElement);
-    focusElement.focus();
-    const keyDownHandler = (e) => {
+    focusHiddenElement();
+    window.pickModeKeyDownHandler = (e) => {
+        if (document.hidden) return;
         e.stopImmediatePropagation();
+        e.preventDefault();
         if (e.key === 'Escape') {
             chrome.runtime.sendMessage({ type: 'cancel_pick_mode' });
             cleanup();
@@ -774,7 +796,13 @@ const politeListener = function(listOfLetters) {
             cleanup();
         }
     };
-    focusElement.addEventListener('keydown', keyDownHandler);
+    window.pickModeFocusHandler = () => {
+        focusHiddenElement();
+    };
+    window.addEventListener('keydown', window.pickModeKeyDownHandler, true);
+    window.addEventListener('focus', window.pickModeFocusHandler, true);
+    document.addEventListener('focusin', window.pickModeFocusHandler, true);
+    window.pickModeFocusGuardId = setInterval(focusHiddenElement, FOCUS_GUARD_INTERVAL_MS);
     window.pickModeCleanupHandler = (message) => {
         if (message && message.type === 'cleanup_pick_mode') {
             cleanup();
