@@ -32,6 +32,16 @@
         "check_unsaved.js"
       ],
       "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "check_unsaved_main.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ],
   "permissions": [
