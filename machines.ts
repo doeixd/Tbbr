@@ -38,6 +38,10 @@ type AutoCloseContext =
     | { status: "disabled" }
     | { status: "enabled"; alarmName: "autoCloseAlarm" };
 
+type NewTabContext =
+    | { status: "unresolved" }
+    | { status: "newTabPage" };
+
 export class PickModeIdle extends MachineBase<{ status: "idle" }> {
     constructor() {
         super({ status: "idle" });
@@ -143,6 +147,13 @@ const autoCloseFactory = createMachineFactory<AutoCloseContext>()({
 
 const createAutoClose = (context: AutoCloseContext = { status: "disabled" }) => autoCloseFactory(context);
 
+const newTabFactory = createMachineFactory<NewTabContext>()({
+    confirmNewTabPage: () => ({ status: "newTabPage" as const }),
+    markUnresolved: () => ({ status: "unresolved" as const })
+});
+
+export const createNewTab = (context: NewTabContext = { status: "unresolved" }) => newTabFactory(context);
+
 export class MouseTracker extends MachineBase<{ inside: boolean }> {
     public enter!: () => MouseTracker;
     public leave!: () => MouseTracker;
@@ -174,6 +185,8 @@ type ActiveDelayState = ReturnType<typeof createActiveDelay>;
 
 type AutoCloseState = ReturnType<typeof createAutoClose>;
 
+type NewTabState = ReturnType<typeof createNewTab>;
+
 type MouseState = ReturnType<typeof createMouseState>;
 
 type BackgroundContext = {
@@ -187,7 +200,7 @@ type BackgroundContext = {
     tabLastActivated: Record<number, number>;
     tabHistory: number[];
     pinnedTabs: number[];
-    newTabIds: Set<number>;
+    trackedNewTabs: Map<number, NewTabState>;
     pickMode: PickModeState;
     cycleState: CycleState;
     countdown: CountdownState;
@@ -213,7 +226,7 @@ const defaultContext: BackgroundContext = {
     tabLastActivated: {},
     tabHistory: [],
     pinnedTabs: [],
-    newTabIds: new Set<number>(),
+    trackedNewTabs: new Map<number, NewTabState>(),
     pickMode: new PickModeIdle(),
     cycleState: createCycle(),
     countdown: createCountdown(),
@@ -258,6 +271,11 @@ const autoCloseMatch = createMatcher(
 const mouseMatch = createMatcher(
     discriminantCase<"outside", MouseState, "inside", false>("outside", "inside", false),
     discriminantCase<"inside", MouseState, "inside", true>("inside", "inside", true)
+);
+
+const newTabMatch = createMatcher(
+    discriminantCase<"unresolved", NewTabState, "status", "unresolved">("unresolved", "status", "unresolved"),
+    discriminantCase<"newTabPage", NewTabState, "status", "newTabPage">("newTabPage", "status", "newTabPage")
 );
 
 const delegateChild = <K extends keyof BackgroundContext>(key: K, action: string) => {
@@ -428,9 +446,11 @@ export const createBackgroundMachine = (overrides: Partial<BackgroundContext> = 
         async tabCreated(tab: any) {
             this.updateTabActivationTime(tab.id);
 
-            if (this.isNewTabPageUrl(tab.pendingUrl) || this.isNewTabPageUrl(tab.url)) {
-                this.context.newTabIds.add(tab.id);
+            const looksLikeNewTab = this.isNewTabPageUrl(tab.pendingUrl) || this.isNewTabPageUrl(tab.url);
+            const urlUnresolved = !tab.pendingUrl && !tab.url;
 
+            if (looksLikeNewTab) {
+                this.context.trackedNewTabs.set(tab.id, createNewTab({ status: "newTabPage" }));
                 if (!this.isTabPinned(tab)) {
                     try {
                         await chrome.tabs.move(tab.id, { index: 0 });
@@ -438,6 +458,11 @@ export const createBackgroundMachine = (overrides: Partial<BackgroundContext> = 
                         console.error(error);
                     }
                 }
+            } else if (urlUnresolved) {
+                // Modern Chrome sometimes fires onCreated before pendingUrl is
+                // populated for user-initiated tabs (Ctrl+T, new-tab button).
+                // Track those too so the later URL update can still move them.
+                this.context.trackedNewTabs.set(tab.id, createNewTab());
             }
 
             return this;
@@ -451,20 +476,37 @@ export const createBackgroundMachine = (overrides: Partial<BackgroundContext> = 
                 this.context.tabHistory.splice(index, 1);
             }
 
-            this.context.newTabIds.delete(tabId);
+            this.context.trackedNewTabs.delete(tabId);
             this.context.tabOriginalTitles.delete(tabId);
             return this;
         },
         async tabUpdated(tabId: number, changeInfo: any, tab: any) {
-            if (this.context.newTabIds.has(tabId) && changeInfo.url && !this.isNewTabPageUrl(changeInfo.url)) {
-                if (!this.isTabPinned(tab)) {
+            const tracked = this.context.trackedNewTabs.get(tabId);
+            if (tracked && changeInfo.url) {
+                const resolvesToNtp = this.isNewTabPageUrl(changeInfo.url);
+
+                // Decide whether the tab still needs a move to index 0. A confirmed
+                // NTP that keeps a NTP URL on update was already moved at creation,
+                // so skip the redundant move. Every other path hops to front.
+                const shouldMove = newTabMatch.when(tracked).is(
+                    newTabMatch.case.unresolved(() => true),
+                    newTabMatch.case.newTabPage(() => !resolvesToNtp),
+                    newTabMatch.exhaustive
+                ) as boolean;
+
+                if (shouldMove && !this.isTabPinned(tab)) {
                     try {
                         await chrome.tabs.move(tabId, { index: 0 });
                     } catch (error) {
                         console.error(error);
                     }
                 }
-                this.context.newTabIds.delete(tabId);
+
+                if (resolvesToNtp) {
+                    this.context.trackedNewTabs.set(tabId, tracked.confirmNewTabPage());
+                } else {
+                    this.context.trackedNewTabs.delete(tabId);
+                }
             }
 
             if (typeof changeInfo.pinned !== "undefined") {

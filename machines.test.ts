@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createBackgroundMachine, MouseTracker } from "./machines";
+import { createBackgroundMachine, createNewTab, MouseTracker } from "./machines";
 
 type ChromeStub = {
     tabs: {
@@ -71,18 +71,18 @@ describe("machines", () => {
 
         await machine.tabCreated(tab as any);
 
-        expect(machine.context.newTabIds.has(1)).toBe(true);
+        expect(machine.context.trackedNewTabs.get(1)?.context.status).toBe("newTabPage");
         expect(chromeStub.tabs.move).toHaveBeenCalledWith(1, { index: 0 });
     });
 
     it("moves tracked new tab after navigation", async () => {
         const machine = createBackgroundMachine();
-        machine.context.newTabIds.add(2);
+        machine.context.trackedNewTabs.set(2, createNewTab({ status: "newTabPage" }));
         const tab = { id: 2, url: "https://example.com", pinned: false };
 
         await machine.tabUpdated(2, { url: "https://example.com" }, tab as any);
 
-        expect(machine.context.newTabIds.has(2)).toBe(false);
+        expect(machine.context.trackedNewTabs.has(2)).toBe(false);
         expect(chromeStub.tabs.move).toHaveBeenCalledWith(2, { index: 0 });
     });
 
@@ -92,8 +92,47 @@ describe("machines", () => {
 
         await machine.tabCreated(tab as any);
 
-        expect(machine.context.newTabIds.has(7)).toBe(true);
+        expect(machine.context.trackedNewTabs.get(7)?.context.status).toBe("newTabPage");
         expect(chromeStub.tabs.move).toHaveBeenCalledWith(7, { index: 0 });
+    });
+
+    it("tracks unresolved new tabs and moves them when URL resolves", async () => {
+        const machine = createBackgroundMachine();
+        const tab = { id: 8, pendingUrl: "", url: "", pinned: false };
+
+        await machine.tabCreated(tab as any);
+
+        expect(machine.context.trackedNewTabs.get(8)?.context.status).toBe("unresolved");
+        expect(chromeStub.tabs.move).not.toHaveBeenCalled();
+
+        await machine.tabUpdated(8, { url: "https://example.com" }, { id: 8, url: "https://example.com", pinned: false } as any);
+
+        expect(chromeStub.tabs.move).toHaveBeenCalledWith(8, { index: 0 });
+        expect(machine.context.trackedNewTabs.has(8)).toBe(false);
+    });
+
+    it("promotes unresolved tab to newTabPage when URL resolves to an NTP", async () => {
+        const machine = createBackgroundMachine();
+        const tab = { id: 9, pendingUrl: "", url: "", pinned: false };
+
+        await machine.tabCreated(tab as any);
+        await machine.tabUpdated(9, { url: "chrome://newtab/" }, { id: 9, url: "chrome://newtab/", pinned: false } as any);
+
+        expect(machine.context.trackedNewTabs.get(9)?.context.status).toBe("newTabPage");
+        expect(chromeStub.tabs.move).toHaveBeenCalledWith(9, { index: 0 });
+    });
+
+    it("skips redundant moves when a confirmed NTP keeps an NTP URL", async () => {
+        const machine = createBackgroundMachine();
+        const tab = { id: 10, pendingUrl: "chrome://newtab/", url: "chrome://newtab/", pinned: false };
+
+        await machine.tabCreated(tab as any);
+        chromeStub.tabs.move.mockClear();
+
+        await machine.tabUpdated(10, { url: "chrome://newtab/" }, { id: 10, url: "chrome://newtab/", pinned: false } as any);
+
+        expect(chromeStub.tabs.move).not.toHaveBeenCalled();
+        expect(machine.context.trackedNewTabs.get(10)?.context.status).toBe("newTabPage");
     });
 
     it("does not move restricted tabs", async () => {
