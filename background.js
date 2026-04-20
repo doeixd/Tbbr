@@ -222,11 +222,16 @@ function handleStorageChange(changes, namespace) {
 async function handleTabCreated(tab) {
     updateTabActivationTime(tab.id);
 
-    // If the new tab is the New Tab Page, track it.
-    if (isNewTabPageUrl(tab.pendingUrl) || isNewTabPageUrl(tab.url)) {
+    const looksLikeNewTab = isNewTabPageUrl(tab.pendingUrl) || isNewTabPageUrl(tab.url);
+    // Modern Chrome sometimes fires onCreated before pendingUrl is populated for
+    // user-initiated tabs (Ctrl+T, new-tab button). Track those too so the later
+    // URL update can still move them to the front.
+    const urlUnresolved = !tab.pendingUrl && !tab.url;
+
+    if (looksLikeNewTab || urlUnresolved) {
         newTabIds.add(tab.id);
 
-        if (!isTabPinned(tab)) {
+        if (looksLikeNewTab && !isTabPinned(tab)) {
             try {
                 await chrome.tabs.move(tab.id, { index: 0 });
             } catch (error) {
@@ -272,18 +277,21 @@ function handleTabRemoved(tabId, removeInfo) {
 }
 
 async function handleTabUpdated(tabId, changeInfo, tab) {
-    // If a tracked "New Tab Page" navigates to a new URL, move it to the front.
-    if (newTabIds.has(tabId) && changeInfo.url && !isNewTabPageUrl(changeInfo.url)) {
+    // Once a tracked new tab resolves its URL, move it to the front. This covers
+    // both the NTP->real-URL transition and the onCreated-without-URL case where
+    // we only learn it's a new tab page now.
+    if (newTabIds.has(tabId) && changeInfo.url) {
         if (!isTabPinned(tab)) {
             try {
-                // This is now a regular tab, move it to the front.
                 await chrome.tabs.move(tabId, { index: 0 });
             } catch (error) {
                 // Tab might have been closed, which is fine.
             }
         }
-        // Stop tracking this tab as a "New Tab Page".
-        newTabIds.delete(tabId);
+        if (!isNewTabPageUrl(changeInfo.url)) {
+            // It's now a regular tab — stop tracking it.
+            newTabIds.delete(tabId);
+        }
     }
 
     // Check if the native pinned status has changed.
